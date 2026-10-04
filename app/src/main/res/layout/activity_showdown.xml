@@ -533,6 +533,16 @@
                 android:layout_marginEnd="6dp" />
 
             <Button
+                android:id="@+id/btnTopForfeit"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:text="Rendirse"
+                android:textSize="10sp"
+                android:backgroundTint="@color/gba_button_a"
+                android:textColor="@color/white"
+                android:layout_marginEnd="6dp" />
+
+            <Button
                 android:id="@+id/btnBattleChat"
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
@@ -932,6 +942,19 @@
                 android:textColor="@color/white" />
         </LinearLayout>
 
+
+        <!-- Showdown's own battle engine (scene, log, move/switch buttons). Covers the native view when loaded. -->
+        <FrameLayout
+            android:id="@+id/battleWebContainer"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="#FF1B1E2B"
+            android:elevation="12dp"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/battleTopBar"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

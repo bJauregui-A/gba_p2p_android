@@ -204,7 +204,25 @@ class ShowdownActivity : AppCompatActivity() {
             Toast.makeText(this, "Actualizando salas públicas...", Toast.LENGTH_SHORT).show()
         }
 
+        binding.btnTopForfeit.setOnClickListener {
+            val battle = showdownClient.currentBattle
+            if (battle == null || battle.isSpectating || battle.winner != null) {
+                showdownClient.leaveBattle()
+                destroyBattleWeb()
+                binding.layoutBattleArena.visibility = View.GONE
+                switchTab(0)
+            } else {
+                AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("Rendirse")
+                    .setMessage("¿Seguro que quieres abandonar la batalla?")
+                    .setPositiveButton("Rendirse") { _, _ -> showdownClient.forfeit() }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+        }
+
         binding.btnLeaveSpectate.setOnClickListener {
+            destroyBattleWeb()
             showdownClient.leaveBattle()
             binding.layoutBattleArena.visibility = View.GONE
             switchTab(3)
@@ -327,6 +345,7 @@ class ShowdownActivity : AppCompatActivity() {
     }
 
     private fun setupShowdownCallbacks() {
+        setupMoreShowdownCallbacks()
         showdownClient.onStatusMessage = { msg ->
             binding.txtLobbyStatus.text = msg
         }
@@ -373,6 +392,17 @@ class ShowdownActivity : AppCompatActivity() {
             }
 
             updateBattleUI(battle)
+            startBattleWeb(battle)
+        }
+
+        showdownClient.onBattleLine = { line -> battleWeb?.feed(line) }
+
+        showdownClient.onBattleRequestJson = { json ->
+            battleWeb?.let { view ->
+                runCatching { JSONObject(json).optJSONObject("side")?.optString("id") }.getOrNull()
+                    ?.takeIf { it.isNotEmpty() }?.let { view.setPerspective(it) }
+                view.setRequest(json)
+            }
         }
 
         showdownClient.onBattleUpdated = { battle ->
@@ -423,10 +453,19 @@ class ShowdownActivity : AppCompatActivity() {
         }
 
         showdownClient.onBattleEnded = { winner ->
-            AlertDialog.Builder(this)
+            battleWeb?.clearControls("¡$winner ganó la batalla!")
+            // Let the Showdown scene finish its last animations before the dialog
+            binding.root.postDelayed({ showBattleEndDialog(winner) }, if (battleWeb != null) 3500L else 0L)
+        }
+    }
+
+    private fun showBattleEndDialog(winner: String) {
+        run {
+            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Fin de la Batalla")
                 .setMessage("¡$winner ha ganado la batalla!")
                 .setPositiveButton("Volver") { _, _ ->
+                    destroyBattleWeb()
                     binding.layoutBattleArena.visibility = View.GONE
                     switchTab(0)
                     binding.btnSearchOpponent.text = "Buscar Contrincante (Ladder)"
@@ -434,7 +473,9 @@ class ShowdownActivity : AppCompatActivity() {
                 }
                 .show()
         }
+    }
 
+    private fun setupMoreShowdownCallbacks() {
         showdownClient.onLobbyChatMessage = { chatMsg ->
             globalChatMessages.add(chatMsg)
             globalChatAdapter.notifyDataSetChanged()
@@ -451,7 +492,7 @@ class ShowdownActivity : AppCompatActivity() {
         }
 
         showdownClient.onTeamPreview = { team ->
-            showTeamPreviewDialog(team)
+            if (battleWeb == null) showTeamPreviewDialog(team) // the Showdown view has its own picker
         }
 
         showdownClient.onUserDetailsReceived = { json ->
@@ -493,7 +534,43 @@ class ShowdownActivity : AppCompatActivity() {
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Showdown battle engine view
+    // ---------------------------------------------------------------------------------------
+
+    private var battleWeb: ShowdownBattleWeb? = null
+
+    private fun startBattleWeb(battle: BattleState) {
+        destroyBattleWeb()
+        forceSwitchDialog?.dismiss()
+        binding.battleWebContainer.visibility = View.VISIBLE
+        binding.btnTopForfeit.text = if (battle.isSpectating) "Salir" else "Rendirse"
+        battleWeb = ShowdownBattleWeb(
+            context = this,
+            container = binding.battleWebContainer,
+            onChoice = { choice, rqid -> showdownClient.chooseRaw(choice, rqid) },
+            onUndo = { showdownClient.undoChoice() },
+            onReady = { },
+            onFailed = { reason ->
+                Toast.makeText(this, "Vista de Showdown no disponible ($reason). Usando vista simple.", Toast.LENGTH_LONG).show()
+                destroyBattleWeb()
+                showdownClient.currentBattle?.let { updateBattleUI(it) }
+            }
+        ).also {
+            if (battle.isSpectating) it.setPerspective("p1")
+            else if (battle.mySide.isNotEmpty()) it.setPerspective(battle.mySide)
+        }
+    }
+
+    private fun destroyBattleWeb() {
+        battleWeb?.destroy()
+        battleWeb = null
+        binding.battleWebContainer.visibility = View.GONE
+    }
+
     private fun updateBattleUI(battle: BattleState) {
+        // While Showdown's own view is shown it handles prompts (switch, team preview) itself
+        if (battleWeb != null) return
         // 1. Opponent Status & Front Sprite
         val opp = battle.opponentActive
         if (opp != null) {
@@ -965,6 +1042,7 @@ class ShowdownActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        destroyBattleWeb()
         super.onDestroy()
         showdownClient.disconnect()
     }

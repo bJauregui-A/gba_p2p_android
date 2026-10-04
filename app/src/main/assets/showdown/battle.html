@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="https://play.pokemonshowdown.com/style/battle.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #1b1e2b; color: #222; font-family: Verdana, Helvetica, Arial, sans-serif; font-size: 9pt; overflow-x: hidden; }
+  #root { display: flex; flex-direction: column; min-height: 100vh; }
+  /* The Showdown battle frame is a fixed 640x360 scene: scaled to the screen width */
+  #sceneBox { position: relative; width: 100%; overflow: hidden; background: #000; }
+  #scene { position: absolute; left: 0; top: 0; width: 640px; height: 360px; transform-origin: 0 0; }
+  #scene .battle { position: absolute; left: 0; top: 0; width: 640px; height: 360px; margin: 0; }
+  #log { height: 120px; overflow-y: auto; background: #fff; border-top: 1px solid #aaa; padding: 2px 6px; font-size: 9pt; }
+  #log .battle-history { margin: 0; }
+  #controls { background: #f3f3f3; padding: 6px 6px 10px; flex: 1; }
+  /* replay-embed.js adds its own (empty) replay player at the end of <body>: hide it */
+  body > .wrapper, .replay-controls, .replay-controls-2 { display: none !important; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11pt; background: #1b1e2b; z-index: 50; }
+  .whatdo { font-size: 10pt; margin: 2px 2px 6px; color: #333; }
+  .whatdo small { color: #666; border: 1px solid #bbb; border-radius: 4px; padding: 0 3px; }
+  h3 { margin: 6px 2px 4px; font-size: 12pt; font-style: italic; }
+  h3.attack { color: #933; } h3.switch { color: #339; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+  .grid.switches { grid-template-columns: repeat(3, 1fr); }
+  button { font-family: inherit; }
+  .movebutton { position: relative; border: 1px solid #888; border-radius: 6px; padding: 6px 6px 16px; font-size: 11pt; text-align: center; color: #000; box-shadow: inset 0 -1px 2px rgba(0,0,0,.15); min-height: 48px; }
+  .movebutton small { position: absolute; bottom: 2px; font-size: 8pt; color: #333; }
+  .movebutton small.type { left: 5px; } .movebutton small.pp { right: 5px; }
+  .movebutton:disabled { opacity: .45; }
+  .movebutton:active, .switchbutton:active { filter: brightness(.9); }
+  .switchbutton { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #999; border-radius: 6px; padding: 4px 2px 3px; background: linear-gradient(#fff, #e8e8e8); font-size: 9pt; color: #000; min-height: 50px; }
+  .switchbutton .row { display: flex; align-items: center; gap: 2px; white-space: nowrap; overflow: hidden; max-width: 100%; }
+  .switchbutton .picon { display: inline-block; width: 40px; height: 30px; flex: none; }
+  .switchbutton .hpbar { display: block; width: 80%; height: 4px; background: #ddd; border-radius: 2px; margin-top: 2px; overflow: hidden; }
+  .switchbutton .hpbar span { display: block; height: 100%; background: #0c0; }
+  .switchbutton .hpbar span.y { background: #ea0; } .switchbutton .hpbar span.r { background: #e22; }
+  .switchbutton.active { opacity: .6; border-style: dashed; }
+  .switchbutton:disabled { opacity: .35; }
+  .special { display: inline-flex; align-items: center; gap: 6px; margin: 8px auto 2px; padding: 6px 14px; border: 1px solid #aaa; border-radius: 6px; background: #fff; font-size: 11pt; }
+  .center { text-align: center; }
+  .wait { text-align: center; color: #555; font-size: 11pt; padding: 18px 0; }
+  .wait button { margin-top: 10px; padding: 6px 14px; border-radius: 6px; border: 1px solid #999; background: #fff; }
+  /* Type colours, as on Showdown */
+  .type-Normal{background:linear-gradient(#F5F5F0,#DCDCC8)} .type-Fire{background:linear-gradient(#FFE0C8,#F5AC78)}
+  .type-Water{background:linear-gradient(#D8E4FF,#9DB7F5)} .type-Electric{background:linear-gradient(#FFF6C8,#FAE078)}
+  .type-Grass{background:linear-gradient(#DCF5D0,#A7DB8D)} .type-Ice{background:linear-gradient(#E0F8F8,#BCE6E6)}
+  .type-Fighting{background:linear-gradient(#F0C8C0,#D67873)} .type-Poison{background:linear-gradient(#E8C8E8,#C183C1)}
+  .type-Ground{background:linear-gradient(#F8ECC8,#EBD69D)} .type-Flying{background:linear-gradient(#E8E0FC,#C6B7F5)}
+  .type-Psychic{background:linear-gradient(#FFD8E4,#FA92B2)} .type-Bug{background:linear-gradient(#E8F0B0,#C6D16E)}
+  .type-Rock{background:linear-gradient(#E8DCB0,#D1C17D)} .type-Ghost{background:linear-gradient(#D8CCE8,#A292BC)}
+  .type-Dragon{background:linear-gradient(#D8C8FF,#A27DFA)} .type-Dark{background:linear-gradient(#D8CCC4,#A29288)}
+  .type-Steel{background:linear-gradient(#E8E8F0,#D1D1E0)} .type-Fairy{background:linear-gradient(#FFE0EC,#F4BDC9)}
+  .type-Stellar{background:linear-gradient(#e0f0ff,#9fd2ff)} .type-\?\?\?{background:linear-gradient(#eee,#ccc)}
+  @media (orientation: landscape) {
+    #root { flex-direction: row; flex-wrap: wrap; }
+    #sceneBox { width: 58%; }
+    #side { width: 42%; display: flex; flex-direction: column; height: 100vh; }
+    #log { flex: 0 0 35%; height: auto; }
+    #controls { overflow-y: auto; }
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="sceneBox"><div id="scene"><div class="battle"></div></div><div id="loading">Cargando campo de batalla de Showdown...</div></div>
+  <div id="side">
+    <div id="log" class="battle-log"></div>
+    <div id="controls"></div>
+  </div>
+</div>
+<!-- Showdown's embeddable battle engine (same one the replays use): jQuery, Dex, scene, animations, sounds -->
+<script src="https://play.pokemonshowdown.com/js/replay-embed.js" onerror="window.__gbaEngineError=true"></script>
+<script>
+(function () {
+  var bridge = window.GbaBattle;
+  var battle = null, queue = [], request = null, perspective = null, ready = false;
+
+  function fail(msg) { try { bridge.failed(String(msg)); } catch (e) {} }
+
+  // ---------- scene scaling ----------
+  function layout() {
+    var box = document.getElementById('sceneBox');
+    var w = box.clientWidth || window.innerWidth;
+    var s = w / 640;
+    document.getElementById('scene').style.transform = 'scale(' + s + ')';
+    box.style.height = Math.round(360 * s) + 'px';
+  }
+  window.addEventListener('resize', layout);
+  layout();
+
+  // ---------- Showdown engine ----------
+  function engineLoaded() {
+    return typeof Battle !== 'undefined' && typeof Dex !== 'undefined' && typeof jQuery !== 'undefined';
+  }
+
+  function loadEngine() {
+    var started = Date.now();
+    (function wait() {
+      if (engineLoaded()) return start();
+      if (window.__gbaEngineError) return fail('No se pudo descargar el motor de batalla de Showdown');
+      if (Date.now() - started > 25000) return fail('El motor de batalla no cargó a tiempo');
+      setTimeout(wait, 150);
+    })();
+  }
+
+  function start() {
+    try {
+      battle = new Battle({ $frame: jQuery('#scene .battle'), $logFrame: jQuery('#log'), id: 'gbalive', autoresize: false });
+      if (perspective) applyPerspective();
+      if (battle.play) battle.play();
+      ready = true;
+      document.getElementById('loading').style.display = 'none';
+      queue.forEach(addLine); queue = [];
+      if (request) renderControls();
+      bridge.ready();
+    } catch (e) { fail('Error iniciando la batalla: ' + e); }
+  }
+
+  function applyPerspective() {
+    try {
+      if (battle.setPerspective) battle.setPerspective(perspective);
+      else if (battle.setViewpoint) battle.setViewpoint(perspective);
+    } catch (e) {}
+  }
+
+  function addLine(line) {
+    try {
+      battle.add(line);
+      // play() on an ended battle restarts it from turn 0, so only resume a running one
+      if (battle.paused && !battle.ended && battle.play) battle.play();
+    } catch (e) { console.log('add failed ' + line + ' ' + e); }
+  }
+
+  // ---------- API used by Android ----------
+  window.gbaFeed = function (lines) {
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (!l || l.indexOf('|request|') === 0 || l.indexOf('|init|') === 0) continue;
+      if (ready) addLine(l); else queue.push(l);
+    }
+  };
+  window.gbaSetPerspective = function (side) { perspective = side; if (ready) applyPerspective(); };
+  window.gbaSetRequest = function (json) { try { request = JSON.parse(json); } catch (e) { request = null; } if (ready) renderControls(); };
+  window.gbaClearControls = function (text) { request = null; document.getElementById('controls').innerHTML = text ? '<div class="wait">' + esc(text) + '</div>' : ''; };
+
+  // ---------- controls (same layout as the website) ----------
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function moveType(id, name) { if (typeof Dex === 'undefined') return 'Normal'; try { var m = Dex.moves.get(id || name); return m && m.exists !== false ? m.type : 'Normal'; } catch (e) { return 'Normal'; } }
+  function icon(species) { if (typeof Dex === 'undefined') return ''; try { return Dex.getPokemonIcon(species); } catch (e) { return ''; } }
+  function hpOf(cond) {
+    if (!cond) return { pct: 100, fnt: false };
+    if (cond.indexOf('fnt') >= 0) return { pct: 0, fnt: true };
+    var p = cond.split(' ')[0].split('/');
+    return { pct: p.length === 2 ? Math.round(100 * p[0] / p[1]) : 100, fnt: false, text: cond.split(' ')[0] };
+  }
+  function speciesOf(poke) { return (poke.details || poke.ident || '').split(',')[0].replace(/^p\d+[a-z]?: /, ''); }
+
+  function choose(choice) {
+    document.getElementById('controls').innerHTML = '<div class="wait">Esperando al rival...<br><button onclick="gbaUndo()">Cancelar</button></div>';
+    try { bridge.choose(choice, request && request.rqid ? String(request.rqid) : ''); } catch (e) {}
+  }
+  window.gbaUndo = function () { try { bridge.undo(); } catch (e) {} if (request) renderControls(); };
+
+  function renderControls() {
+    var c = document.getElementById('controls');
+    var r = request;
+    if (!r) { c.innerHTML = ''; return; }
+    if (r.wait) { c.innerHTML = '<div class="wait">Esperando al rival...</div>'; return; }
+    var side = r.side || { pokemon: [] };
+    var html = '';
+
+    if (r.teamPreview) {
+      html += '<h3 class="switch">¿Quién sale primero?</h3><div class="grid switches">';
+      side.pokemon.forEach(function (p, i) {
+        html += '<button class="switchbutton" onclick="gbaPick(\'team ' + (i + 1) + '\')"><span class="row"><span class="picon" style="' + esc(icon(speciesOf(p))) + '"></span>' + esc(speciesOf(p)) + '</span></button>';
+      });
+      c.innerHTML = html + '</div>';
+      return;
+    }
+
+    var forceSwitch = r.forceSwitch && r.forceSwitch[0];
+    var active = r.active && r.active[0];
+    var me = side.pokemon.filter(function (p) { return p.active; })[0] || side.pokemon[0];
+
+    if (!forceSwitch && active) {
+      var name = me ? (me.ident || '').replace(/^p\d+[a-z]?: /, '') : '';
+      var hp = me ? hpOf(me.condition) : { text: '' };
+      html += '<div class="whatdo">¿Qué hará <b>' + esc(name) + '</b>? ' + (hp.text ? '<small>PS ' + esc(hp.text) + '</small>' : '') + '</div>';
+      html += '<h3 class="attack">Ataque</h3><div class="grid">';
+      var moves = active.maxMoves && false ? active.maxMoves.maxMoves : active.moves;
+      moves.forEach(function (m, i) {
+        var t = moveType(m.id, m.move);
+        var pp = (m.maxpp ? (m.pp + '/' + m.maxpp) : '&ndash;');
+        var dis = m.disabled ? ' disabled' : '';
+        html += '<button class="movebutton type-' + esc(t) + '"' + dis + ' onclick="gbaMove(' + (i + 1) + ')">' + esc(m.move) +
+          '<small class="type">' + esc(t) + '</small><small class="pp">' + pp + '</small></button>';
+      });
+      html += '</div>';
+      var specials = [];
+      if (active.canTerastallize) specials.push(['terastallize', 'Teracristalizar <small>(' + esc(active.canTerastallize) + ')</small>']);
+      if (active.canMegaEvo) specials.push(['mega', 'Megaevolución']);
+      if (active.canDynamax) specials.push(['dynamax', 'Dinamax']);
+      if (active.canZMove) specials.push(['zmove', 'Movimiento Z']);
+      specials.forEach(function (s) {
+        html += '<div class="center"><label class="special"><input type="checkbox" class="specialbox" value="' + s[0] + '"> ' + s[1] + '</label></div>';
+      });
+    } else if (forceSwitch) {
+      html += '<div class="whatdo"><b>Elige un Pokémon para reemplazar al debilitado.</b></div>';
+    }
+
+    var trapped = active && (active.trapped || active.maybeTrapped);
+    html += '<h3 class="switch">Cambiar</h3><div class="grid switches">';
+    side.pokemon.forEach(function (p, i) {
+      var h = hpOf(p.condition);
+      var cls = h.pct > 50 ? '' : (h.pct > 20 ? 'y' : 'r');
+      var disabled = p.active || h.fnt || (trapped && !forceSwitch);
+      html += '<button class="switchbutton' + (p.active ? ' active' : '') + '"' + (disabled ? ' disabled' : '') +
+        ' onclick="gbaSwitch(' + (i + 1) + ')"><span class="row"><span class="picon" style="' + esc(icon(speciesOf(p))) + '"></span>' +
+        esc((p.ident || '').replace(/^p\d+[a-z]?: /, '')) + '</span><span class="hpbar"><span class="' + cls + '" style="width:' + h.pct + '%"></span></span></button>';
+    });
+    html += '</div>';
+    if (trapped && !forceSwitch) html += '<div class="center" style="color:#933;margin-top:4px">No puedes cambiar: estás atrapado.</div>';
+    c.innerHTML = html;
+  }
+
+  window.gbaPick = function (choice) { choose(choice); };
+  window.gbaMove = function (n) {
+    var extra = '';
+    var boxes = document.querySelectorAll('.specialbox');
+    for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) extra = ' ' + boxes[i].value;
+    choose('move ' + n + extra);
+  };
+  window.gbaSwitch = function (n) { choose('switch ' + n); };
+
+  loadEngine();
+})();
+</script>
+</body>
+</html>

@@ -53,6 +53,10 @@ class ShowdownClient {
     var onBattleEnded: ((String) -> Unit)? = null
     var onChallengeReceived: ((Challenge) -> Unit)? = null
     var onChallengeCancelled: ((String) -> Unit)? = null
+    /** Every protocol line of the current battle room, in order (for the Showdown battle engine). */
+    var onBattleLine: ((String) -> Unit)? = null
+    /** Raw |request| JSON of the current battle. */
+    var onBattleRequestJson: ((String) -> Unit)? = null
     var onPrivateMessage: ((ChatMessage) -> Unit)? = null
     var onStatusMessage: ((String) -> Unit)? = null
     var onBattleVisualEvent: ((BattleVisualEvent) -> Unit)? = null
@@ -378,6 +382,19 @@ class ShowdownClient {
         onBattleUpdated?.invoke(battle)
     }
 
+    /** Sends a choice built by the battle view ("move 1 terastallize", "switch 3", "team 2"). */
+    fun chooseRaw(choice: String, rqid: String = "") {
+        val battle = currentBattle ?: return
+        val suffix = if (rqid.isNotEmpty()) "|$rqid" else ""
+        sendRaw("${battle.roomId}|/choose $choice$suffix")
+        battle.isMyTurn = false
+    }
+
+    fun undoChoice() {
+        val battle = currentBattle ?: return
+        sendRaw("${battle.roomId}|/undo")
+    }
+
     fun forfeit() {
         val battle = currentBattle ?: return
         sendRaw("${battle.roomId}|/forfeit")
@@ -414,6 +431,18 @@ class ShowdownClient {
             if (parts.size < 2) continue
             val cmd = parts[1]
 
+            handleLine(cmd, parts, roomId)
+
+            // Forward battle-room lines to the battle engine view (after handleLine so that
+            // |init| has already created currentBattle)
+            if (roomId.startsWith("battle-") && roomId == currentBattle?.roomId) {
+                CoroutineScope(Dispatchers.Main).launch { onBattleLine?.invoke(raw) }
+            }
+        }
+    }
+
+    private fun handleLine(cmd: String, parts: List<String>, roomId: String) {
+        run {
             when (cmd) {
                 "challstr" -> {
                     // |challstr|CHALLSTR
@@ -454,7 +483,7 @@ class ShowdownClient {
                     // |pm|SENDER|RECEIVER|MESSAGE  (challenges arrive here as "/challenge FORMAT|...")
                     val sender = cleanName(parts.getOrNull(2) ?: "")
                     val message = parts.drop(4).joinToString("|")
-                    val fromMe = toId(sender) == toId(currentUser.name)
+                    val fromMe = toId(sender) == toId(currentUser.username)
                     when {
                         message.startsWith("/challenge") -> {
                             val format = message.removePrefix("/challenge").trim().substringBefore("|").trim()
@@ -523,10 +552,11 @@ class ShowdownClient {
                 }
 
                 "request" -> {
-                    // |request|JSON
-                    val jsonStr = parts.getOrNull(2) ?: ""
+                    // |request|JSON  (the JSON itself may contain "|")
+                    val jsonStr = parts.drop(2).joinToString("|")
                     if (jsonStr.isNotEmpty() && currentBattle != null) {
                         parseBattleRequest(jsonStr, currentBattle!!)
+                        CoroutineScope(Dispatchers.Main).launch { onBattleRequestJson?.invoke(jsonStr) }
                     }
                 }
 
