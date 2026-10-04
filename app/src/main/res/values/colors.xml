@@ -12,4 +12,8 @@
     <color name="gba_shoulder">#FF30336B</color>
     <color name="gba_online_green">#FF2ECC71</color>
     <color name="gba_warning_yellow">#FFF1C40F</color>
+    <color name="menu_panel">#F5161927</color>
+    <color name="menu_tile">#FF232738</color>
+    <color name="text_secondary">#FF9AA0B8</color>
+    <color name="danger">#FFFF6B6B</color>
 </resources>

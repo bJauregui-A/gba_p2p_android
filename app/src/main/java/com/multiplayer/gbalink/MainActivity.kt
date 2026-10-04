@@ -1,6 +1,10 @@
 package com.multiplayer.gbalink
 
 import android.app.AlertDialog
+import android.app.Dialog
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.Bitmap
 import android.content.Context
 import android.content.Intent
@@ -12,13 +16,14 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.widget.BaseAdapter
-import android.widget.ListView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.core.widget.ImageViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.multiplayer.gbalink.core.GbaEmulator
@@ -26,6 +31,10 @@ import com.multiplayer.gbalink.core.GbaNative
 import com.multiplayer.gbalink.core.HomebrewRom
 import com.multiplayer.gbalink.core.SaveStateManager
 import com.multiplayer.gbalink.databinding.ActivityMainBinding
+import com.multiplayer.gbalink.databinding.DialogIngameMenuBinding
+import com.multiplayer.gbalink.databinding.DialogSaveSlotsBinding
+import com.multiplayer.gbalink.databinding.ItemMenuRowBinding
+import com.multiplayer.gbalink.databinding.ItemMenuTileBinding
 import com.multiplayer.gbalink.databinding.ItemSaveSlotBinding
 import com.multiplayer.gbalink.network.P2PConnectionManager
 import com.multiplayer.gbalink.ui.GbaGlSurfaceView
@@ -289,9 +298,19 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------------------------------
 
     private inner class SlotAdapter(private val forLoading: Boolean) : BaseAdapter() {
-        private val slots = saveStates.slots()
+        private var slots = saveStates.slots()
+        private var newest = newestSlot()
         private val thumbs = HashMap<Int, Bitmap?>()
         private val dateFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+
+        private fun newestSlot() = slots.filter { it.exists }.maxByOrNull { it.lastModified }?.index
+
+        fun refresh() {
+            slots = saveStates.slots()
+            newest = newestSlot()
+            thumbs.clear()
+            notifyDataSetChanged()
+        }
 
         override fun getCount() = slots.size
         override fun getItem(position: Int) = slots[position]
@@ -302,33 +321,55 @@ class MainActivity : AppCompatActivity() {
             val b = convertView?.let { ItemSaveSlotBinding.bind(it) }
                 ?: ItemSaveSlotBinding.inflate(layoutInflater, parent, false)
             val slot = slots[position]
+            val isNewest = slot.index == newest
             b.slotTitle.text = "Slot ${slot.index}"
+            b.slotBadge.visibility = if (isNewest) View.VISIBLE else View.GONE
+            b.slotCard.setBackgroundResource(if (isNewest) R.drawable.bg_slot_card_recent else R.drawable.bg_slot_card)
             if (slot.exists) {
                 b.slotSubtitle.text = dateFormat.format(Date(slot.lastModified))
                 b.slotThumb.setImageBitmap(thumbs.getOrPut(slot.index) { slot.loadThumbnail() })
+                b.slotEmptyIcon.visibility = View.GONE
                 b.root.alpha = 1f
             } else {
-                b.slotSubtitle.text = "Vacío"
+                b.slotSubtitle.text = if (forLoading) "Vacío" else "Vacío · toca para guardar"
                 b.slotThumb.setImageDrawable(null)
-                b.root.alpha = if (forLoading) 0.4f else 1f
+                b.slotEmptyIcon.visibility = View.VISIBLE
+                b.root.alpha = if (forLoading) 0.45f else 1f
             }
             return b.root
         }
     }
 
+    /** Dark rounded floating panel used by the in-game menu and the slot picker. */
+    private fun createPanelDialog(content: View, maxWidthDp: Int, heightFraction: Float? = null): Dialog {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(content)
+        dialog.window?.let { w ->
+            w.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            w.setDimAmount(0.65f)
+            val dm = resources.displayMetrics
+            val width = minOf((dm.widthPixels * 0.94f).toInt(), (maxWidthDp * dm.density).toInt())
+            val height = heightFraction?.let { (dm.heightPixels * it).toInt() } ?: ViewGroup.LayoutParams.WRAP_CONTENT
+            w.setLayout(width, height)
+        }
+        return dialog
+    }
+
     private fun showSlotDialog(forLoading: Boolean) {
         emulator.pause()
-        val list = ListView(this).apply { dividerHeight = 1 }
-        list.adapter = SlotAdapter(forLoading)
+        val b = DialogSaveSlotsBinding.inflate(layoutInflater)
+        val adapter = SlotAdapter(forLoading)
+        b.slotsTitle.text = if (forLoading) "Cargar estado" else "Guardar estado"
+        b.slotsHint.text = if (forLoading) "Elige un slot · mantén pulsado para borrar" else "Elige dónde guardar · mantén pulsado para borrar"
+        b.slotsIcon.setImageResource(if (forLoading) R.drawable.ic_restore else R.drawable.ic_save)
+        b.slotGrid.adapter = adapter
 
-        val dialog = dialogBuilder()
-            .setTitle(if (forLoading) "Cargar estado" else "Guardar estado")
-            .setView(list)
-            .setNegativeButton("Cancelar", null)
-            .create()
+        val dialog = createPanelDialog(b.root, maxWidthDp = 720, heightFraction = 0.88f)
+        b.btnSlotsClose.setOnClickListener { dialog.dismiss() }
 
-        list.setOnItemClickListener { _, _, position, _ ->
-            val slot = saveStates.slots()[position]
+        b.slotGrid.setOnItemClickListener { _, _, position, _ ->
+            val slot = adapter.getItem(position)
             if (forLoading) {
                 dialog.dismiss()
                 loadStateSlot(slot.index)
@@ -347,15 +388,15 @@ class MainActivity : AppCompatActivity() {
                 saveStateSlot(slot.index)
             }
         }
-        list.setOnItemLongClickListener { _, _, position, _ ->
-            val slot = saveStates.slots()[position]
+        b.slotGrid.setOnItemLongClickListener { _, _, position, _ ->
+            val slot = adapter.getItem(position)
             if (!slot.exists) return@setOnItemLongClickListener false
             dialogBuilder()
                 .setTitle("Borrar Slot ${slot.index}")
                 .setMessage("¿Eliminar este estado guardado?")
                 .setPositiveButton("Borrar") { _, _ ->
                     saveStates.delete(slot.index)
-                    list.adapter = SlotAdapter(forLoading)
+                    adapter.refresh()
                 }
                 .setNegativeButton("Cancelar", null)
                 .show()
@@ -368,25 +409,35 @@ class MainActivity : AppCompatActivity() {
     private fun saveStateSlot(index: Int) {
         val state = emulator.saveState()
         if (state == null) {
-            Toast.makeText(this, "Error al crear el estado", Toast.LENGTH_SHORT).show()
+            showOsd("Error al crear el estado")
             return
         }
         val screenshot = emulator.screenBitmap.copy(Bitmap.Config.ARGB_8888, false)
         val ok = saveStates.save(index, state, screenshot)
-        Toast.makeText(
-            this,
-            if (ok) "Estado guardado en Slot $index" else "No se pudo escribir el Slot $index",
-            Toast.LENGTH_SHORT
-        ).show()
+        showOsd(if (ok) "Estado guardado · Slot $index" else "No se pudo escribir el Slot $index")
     }
 
     private fun loadStateSlot(index: Int) {
         val data = saveStates.load(index)
         if (data == null || !emulator.loadState(data)) {
-            Toast.makeText(this, "No se pudo cargar el Slot $index", Toast.LENGTH_SHORT).show()
+            showOsd("No se pudo cargar el Slot $index")
             return
         }
-        Toast.makeText(this, "Estado del Slot $index cargado", Toast.LENGTH_SHORT).show()
+        showOsd("Estado cargado · Slot $index")
+    }
+
+    /** Short MyBoy-style message over the game screen. */
+    private fun showOsd(text: String) {
+        val osd = binding.txtOsd
+        osd.text = text
+        osd.animate().cancel()
+        osd.visibility = View.VISIBLE
+        osd.alpha = 0f
+        osd.animate().alpha(1f).setDuration(150).withEndAction {
+            osd.animate().alpha(0f).setStartDelay(1600).setDuration(300).withEndAction {
+                osd.visibility = View.GONE
+            }.start()
+        }.start()
     }
 
     /** Resumes emulation once no dialog of the in-game menu remains open. */
@@ -414,7 +465,7 @@ class MainActivity : AppCompatActivity() {
                         .edit()
                         .putString("current_shader", selected.name)
                         .apply()
-                    Toast.makeText(this, "Filtro aplicado: ${selected.displayName}", Toast.LENGTH_SHORT).show()
+                    showOsd("Filtro: ${selected.displayName}")
                     dialog.dismiss()
                 }
             }
@@ -436,13 +487,20 @@ class MainActivity : AppCompatActivity() {
         dialogBuilder()
             .setTitle("Velocidad de Juego")
             .setSingleChoiceItems(speeds, currentIdx) { dialog, which ->
-                emulator.speedMultiplier = factors[which]
-                Toast.makeText(this, "Velocidad: ${speeds[which]}", Toast.LENGTH_SHORT).show()
+                setSpeed(factors[which])
                 dialog.dismiss()
             }
             .setNegativeButton("Cerrar", null)
             .setOnDismissListener { resumeAfterMenu() }
             .show()
+    }
+
+    private fun setSpeed(factor: Float) {
+        emulator.speedMultiplier = factor
+        if (factor > 1f) {
+            getSharedPreferences("gba_prefs", Context.MODE_PRIVATE).edit().putFloat("turbo_speed", factor).apply()
+        }
+        showOsd(if (factor > 1f) "Turbo ${factor.toInt()}x" else "Velocidad normal")
     }
 
     /**
@@ -455,39 +513,102 @@ class MainActivity : AppCompatActivity() {
         autoSaveBattery()
 
         val savName = batterySaveFile?.name ?: romFile?.let { "${it.nameWithoutExtension}.sav" } ?: "$currentRomName.sav"
-        val speedText = if (emulator.speedMultiplier > 1.0f) "${emulator.speedMultiplier.toInt()}x" else "1x"
+        val hasBattery = batterySaveFile?.exists() == true
+        val speed = emulator.speedMultiplier
+        val turbo = getSharedPreferences("gba_prefs", Context.MODE_PRIVATE).getFloat("turbo_speed", 2f)
 
-        // Each entry: label -> action. Actions that open another dialog return true so the
-        // emulator stays paused until that dialog is closed.
-        val entries = listOf<Pair<String, () -> Boolean>>(
-            "Continuar" to { false },
-            "Guardar estado..." to { showSlotDialog(forLoading = false); true },
-            "Cargar estado..." to { showSlotDialog(forLoading = true); true },
-            "Filtros de pantalla / Shaders" to { showShaderDialog(); true },
-            "Velocidad de juego ($speedText)" to { showSpeedDialog(); true },
-            "Exportar partida GBA ($savName)..." to {
-                autoSaveBattery(force = true)
-                exportSaveLauncher.launch(savName); false
-            },
-            "Importar partida GBA (.sav)..." to { importSaveLauncher.launch("*/*"); false },
-            "Cable Link P2P (Multijugador)" to { MultiplayerDialog(this, p2pManager).show(); false },
-            "Reiniciar juego" to { emulator.reset(); false },
-            "Cerrar juego" to {
-                autoSaveBattery(force = true)
-                finish(); false
-            }
-        )
-
+        val b = DialogIngameMenuBinding.inflate(layoutInflater)
+        val dialog = createPanelDialog(b.root, maxWidthDp = 460)
         var openedSubDialog = false
-        dialogBuilder()
-            .setTitle(currentRomName)
-            .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
-                openedSubDialog = entries[which].second()
+
+        b.menuTitle.text = currentRomName
+        b.menuSubtitle.text = buildString {
+            append(if (hasBattery) "Partida: $savName" else "Sin partida guardada aún")
+            append(" · ${if (speed > 1f) "${speed.toInt()}x" else "1x"}")
+        }
+
+        // Action that opens another dialog: keep the emulator paused until that one closes
+        fun sub(action: () -> Unit): () -> Unit = {
+            openedSubDialog = true
+            dialog.dismiss()
+            action()
+        }
+        // Action that returns to the game
+        fun now(action: () -> Unit): () -> Unit = {
+            dialog.dismiss()
+            action()
+        }
+
+        fun tile(icon: Int, label: String, active: Boolean = false, onClick: () -> Unit) {
+            val t = ItemMenuTileBinding.inflate(layoutInflater, b.menuTiles, false)
+            t.tileIcon.setImageResource(icon)
+            t.tileLabel.text = label
+            if (active) t.root.setBackgroundResource(R.drawable.bg_menu_tile_active)
+            t.root.setOnClickListener { onClick() }
+            b.menuTiles.addView(t.root)
+        }
+
+        fun section(title: String) {
+            val v = layoutInflater.inflate(R.layout.item_menu_section, b.menuRows, false) as android.widget.TextView
+            v.text = title
+            b.menuRows.addView(v)
+        }
+
+        fun row(icon: Int, label: String, value: String? = null, danger: Boolean = false, onClick: () -> Unit) {
+            val r = ItemMenuRowBinding.inflate(layoutInflater, b.menuRows, false)
+            r.rowIcon.setImageResource(icon)
+            r.rowLabel.text = label
+            r.rowValue.text = value ?: ""
+            r.rowValue.visibility = if (value == null) View.GONE else View.VISIBLE
+            if (danger) {
+                val red = getColor(R.color.danger)
+                r.rowLabel.setTextColor(red)
+                ImageViewCompat.setImageTintList(r.rowIcon, ColorStateList.valueOf(red))
             }
-            .setOnDismissListener {
-                if (!openedSubDialog) resumeAfterMenu()
-            }
-            .show()
+            r.root.setOnClickListener { onClick() }
+            b.menuRows.addView(r.root)
+        }
+
+        tile(R.drawable.ic_save, "Guardar\nestado", onClick = sub { showSlotDialog(forLoading = false) })
+        tile(R.drawable.ic_restore, "Cargar\nestado", onClick = sub { showSlotDialog(forLoading = true) })
+        tile(R.drawable.ic_fast_forward, if (speed > 1f) "Turbo\n${speed.toInt()}x" else "Turbo\n${turbo.toInt()}x",
+            active = speed > 1f, onClick = now { setSpeed(if (speed > 1f) 1f else turbo) })
+        tile(R.drawable.ic_screen, "Filtros\nvideo", onClick = sub { showShaderDialog() })
+
+        section("Juego")
+        row(R.drawable.ic_speed, "Velocidad", if (speed > 1f) "${speed.toInt()}x" else "Normal", onClick = sub { showSpeedDialog() })
+        row(R.drawable.ic_link, "Cable Link P2P", "Multijugador", onClick = now { MultiplayerDialog(this, p2pManager).show() })
+        row(R.drawable.ic_refresh, "Reiniciar juego", onClick = {
+            openedSubDialog = true
+            dialog.dismiss()
+            dialogBuilder()
+                .setTitle("Reiniciar juego")
+                .setMessage("Se perderá el progreso que no hayas guardado. ¿Continuar?")
+                .setPositiveButton("Reiniciar") { _, _ -> emulator.reset() }
+                .setNegativeButton("Cancelar", null)
+                .setOnDismissListener { resumeAfterMenu() }
+                .show()
+        })
+
+        section("Partida GBA (.sav)")
+        row(R.drawable.ic_upload, "Exportar partida", savName, onClick = now {
+            autoSaveBattery(force = true)
+            exportSaveLauncher.launch(savName)
+        })
+        row(R.drawable.ic_download, "Importar partida (.sav)", onClick = now { importSaveLauncher.launch("*/*") })
+
+        section("")
+        row(R.drawable.ic_exit, "Cerrar juego", danger = true, onClick = now {
+            autoSaveBattery(force = true)
+            finish()
+        })
+
+        b.btnMenuClose.setOnClickListener { dialog.dismiss() }
+        b.btnMenuContinue.setOnClickListener { dialog.dismiss() }
+        dialog.setOnDismissListener {
+            if (!openedSubDialog) resumeAfterMenu()
+        }
+        dialog.show()
     }
 
     private fun loadRomFromFile(file: File) {

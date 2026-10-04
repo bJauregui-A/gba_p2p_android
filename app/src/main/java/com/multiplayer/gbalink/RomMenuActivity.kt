@@ -13,6 +13,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +37,9 @@ class RomMenuActivity : AppCompatActivity() {
         val path: String,
         val isDirectory: Boolean,
         val isDemoRom: Boolean = false,
-        val sizeString: String = ""
+        val sizeString: String = "",
+        val isParent: Boolean = false,
+        val badge: String? = null
     )
 
     private val items = mutableListOf<ExplorerItem>()
@@ -97,7 +100,7 @@ class RomMenuActivity : AppCompatActivity() {
                 "Ir a /Download",
                 "Elegir carpeta con SAF"
             )
-            androidx.appcompat.app.AlertDialog.Builder(this)
+            android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Explorador de ROMs")
                 .setItems(options) { _, which ->
                     when (which) {
@@ -120,7 +123,43 @@ class RomMenuActivity : AppCompatActivity() {
             startActivity(Intent(this, ShowdownActivity::class.java))
         }
 
+        binding.cardContinue.setOnClickListener {
+            val prefs = getSharedPreferences("myboy_prefs", Context.MODE_PRIVATE)
+            val path = prefs.getString("last_rom_path", null)
+            if (path != null && File(path).exists()) {
+                launchGame(path, prefs.getString("last_rom_name", null) ?: File(path).nameWithoutExtension)
+            }
+        }
+
         refreshDirectory()
+    }
+
+    /** Shows the "Continuar" card for the last played ROM, if it still exists. */
+    private fun refreshContinueCard() {
+        val prefs = getSharedPreferences("myboy_prefs", Context.MODE_PRIVATE)
+        val path = prefs.getString("last_rom_path", null)
+        if (path != null && File(path).exists()) {
+            binding.txtContinueName.text = prefs.getString("last_rom_name", null) ?: File(path).nameWithoutExtension
+            binding.cardContinue.visibility = View.VISIBLE
+        } else {
+            binding.cardContinue.visibility = View.GONE
+        }
+    }
+
+    /** "Partida" chip when a battery save exists, plus the number of emulator state slots used. */
+    private fun saveBadge(rom: File): String? {
+        val base = rom.nameWithoutExtension
+        val dir = rom.parentFile ?: return null
+        val hasSav = listOf("$base.sav", "$base.SAV", "$base.srm").any { File(dir, it).isFile }
+        val states = File(dir, "states").listFiles { f ->
+            f.name.startsWith("$base.ss") && !f.name.endsWith(".png") && !f.name.endsWith(".tmp")
+        }?.size ?: 0
+        return when {
+            hasSav && states > 0 -> "Partida · $states"
+            hasSav -> "Partida"
+            states > 0 -> "$states estados"
+            else -> null
+        }
     }
 
     private fun checkStoragePermissions() {
@@ -173,6 +212,7 @@ class RomMenuActivity : AppCompatActivity() {
 
     private fun refreshDirectory() {
         binding.txtCurrentPath.text = currentDirectory.absolutePath
+        refreshContinueCard()
         items.clear()
 
         // 1. Built-in Demo ROM always at top
@@ -181,7 +221,7 @@ class RomMenuActivity : AppCompatActivity() {
         // 2. Parent directory if not at root
         val parent = currentDirectory.parentFile
         if (parent != null && parent.canRead()) {
-            items.add(ExplorerItem(".. (Subir un nivel)", parent.absolutePath, isDirectory = true, sizeString = "Regresar a carpeta anterior"))
+            items.add(ExplorerItem("Subir un nivel", parent.absolutePath, isDirectory = true, sizeString = parent.name.ifEmpty { "/" }, isParent = true))
         }
 
         // 3. Scan current directory for folders and ROM files
@@ -203,7 +243,7 @@ class RomMenuActivity : AppCompatActivity() {
                             "gb", "gbc" -> "$sizeMb • ROM Game Boy"
                             else -> "$sizeMb • ROM GBA"
                         }
-                        romList.add(ExplorerItem(f.name, f.absolutePath, isDirectory = false, sizeString = desc))
+                        romList.add(ExplorerItem(f.name, f.absolutePath, isDirectory = false, sizeString = desc, badge = saveBadge(f)))
                     }
                 }
             }
@@ -214,6 +254,9 @@ class RomMenuActivity : AppCompatActivity() {
             items.addAll(dirList)
             items.addAll(romList)
         }
+
+        val hasRoms = items.any { !it.isDirectory && !it.isDemoRom }
+        binding.txtEmpty.visibility = if (hasRoms) View.GONE else View.VISIBLE
 
         adapter.notifyDataSetChanged()
     }
@@ -281,6 +324,12 @@ class RomMenuActivity : AppCompatActivity() {
     }
 
     private fun launchGame(romPath: String?, romName: String) {
+        if (romPath != null) {
+            getSharedPreferences("myboy_prefs", Context.MODE_PRIVATE).edit()
+                .putString("last_rom_path", romPath)
+                .putString("last_rom_name", romName)
+                .apply()
+        }
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("ROM_PATH", romPath)
             putExtra("ROM_NAME", romName)
@@ -299,9 +348,26 @@ class RomMenuActivity : AppCompatActivity() {
 
             val txtName = view.findViewById<TextView>(R.id.txtItemName)
             val txtDetail = view.findViewById<TextView>(R.id.txtItemDetail)
+            val txtBadge = view.findViewById<TextView>(R.id.txtItemBadge)
+            val imgIcon = view.findViewById<ImageView>(R.id.imgItemIcon)
 
             txtName.text = item.name
             txtDetail.text = item.sizeString
+            txtBadge.text = item.badge ?: ""
+            txtBadge.visibility = if (item.badge != null) View.VISIBLE else View.GONE
+
+            val ext = File(item.path).extension.lowercase()
+            val (icon, tint) = when {
+                item.isParent -> R.drawable.ic_arrow_up to R.color.text_secondary
+                item.isDirectory -> R.drawable.ic_folder to R.color.gba_warning_yellow
+                item.isDemoRom -> R.drawable.ic_play to R.color.gba_online_green
+                ext == "zip" || ext == "7z" -> R.drawable.ic_archive to R.color.gba_button_b
+                else -> R.drawable.ic_gamepad to R.color.gba_accent
+            }
+            imgIcon.setImageResource(icon)
+            androidx.core.widget.ImageViewCompat.setImageTintList(
+                imgIcon, android.content.res.ColorStateList.valueOf(getColor(tint))
+            )
 
             return view
         }

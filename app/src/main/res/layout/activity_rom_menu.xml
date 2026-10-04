@@ -1,68 +1,152 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FF121212">
+    android:background="@color/gba_bg">
 
-    <!-- MyBoy Style Top Action Bar -->
+    <!-- Top bar -->
     <LinearLayout
         android:id="@+id/myBoyTopBar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#FF1E1E1E"
-        android:paddingHorizontal="12dp">
+        android:background="@color/gba_bezel"
+        android:paddingStart="16dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="MyBoy! P2P"
-            android:textColor="@color/white"
-            android:textStyle="bold"
-            android:textSize="17sp" />
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_icon_circle"
+            android:padding="7dp"
+            android:src="@drawable/ic_gamepad"
+            android:contentDescription="@null"
+            app:tint="@color/gba_accent" />
 
-        <TextView
-            android:id="@+id/txtCurrentPath"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="/storage/emulated/0/Download"
-            android:textColor="#88FFFFFF"
-            android:textSize="12sp"
-            android:singleLine="true"
-            android:ellipsize="start"
             android:layout_marginStart="12dp"
-            android:layout_marginEnd="8dp" />
+            android:orientation="vertical">
 
-        <Button
-            android:id="@+id/btnSelectFolder"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="Carpeta"
-            android:textSize="11sp"
-            android:backgroundTint="#FF333333"
-            android:textColor="@color/white"
-            android:layout_marginEnd="6dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="GBA Link P2P"
+                android:textColor="@color/white"
+                android:textStyle="bold"
+                android:textSize="18sp" />
 
-        <Button
+            <TextView
+                android:id="@+id/txtCurrentPath"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="start" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnMenuShowdown"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="40dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
             android:text="Showdown"
-            android:textSize="11sp"
-            android:backgroundTint="#FF6A1B9A"
-            android:textColor="@color/white" />
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:textColor="@color/white"
+            app:backgroundTint="#FF6A1B9A"
+            app:cornerRadius="20dp" />
+
+        <ImageButton
+            android:id="@+id/btnSelectFolder"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_folder"
+            android:contentDescription="Explorador de ROMs"
+            app:tint="@color/white" />
     </LinearLayout>
 
-    <!-- ROM & Folder List -->
+    <!-- Continue last game -->
+    <LinearLayout
+        android:id="@+id/cardContinue"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        android:background="@drawable/bg_continue_card"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="14dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_chip_accent"
+            android:padding="8dp"
+            android:src="@drawable/ic_play"
+            android:contentDescription="@null"
+            app:tint="@color/white" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CONTINUAR"
+                android:letterSpacing="0.08"
+                android:textColor="@color/gba_accent"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/txtContinueName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
     <ListView
         android:id="@+id/listExplorer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:divider="#22FFFFFF"
-        android:dividerHeight="1dp"
-        android:listSelector="#33FFFFFF" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="12dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:listSelector="@android:color/transparent" />
 
+    <TextView
+        android:id="@+id/txtEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="24dp"
+        android:text="No hay ROMs en esta carpeta.\nToca el icono de carpeta para buscar otra."
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp"
+        android:visibility="gone" />
 </LinearLayout>

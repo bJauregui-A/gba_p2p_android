@@ -99,6 +99,7 @@ class ShowdownActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         enableImmersiveMode()
+        showdownClient.connect() // no-op when already connected; reconnects right away otherwise
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

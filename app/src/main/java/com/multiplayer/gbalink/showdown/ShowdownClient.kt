@@ -13,15 +13,30 @@ class ShowdownClient {
         private const val TAG = "ShowdownClient"
         private const val WS_URL = "wss://sim3.psim.us/showdown/websocket"
         private const val LOGIN_API_URL = "https://play.pokemonshowdown.com/~~showdown/action.php"
+        private const val ORIGIN = "https://play.pokemonshowdown.com"
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android) GbaLinkP2P/1.0"
     }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // For WebSocket long-lived connection
+        .pingInterval(25, TimeUnit.SECONDS)     // keeps mobile NAT / proxies from dropping the socket
+        .retryOnConnectionFailure(true)
         .build()
 
     private var webSocket: WebSocket? = null
     private var challstr: String? = null
+
+    // Reconnection state: the socket is recreated automatically unless the user closed it
+    private var userClosed = false
+    private var reconnectAttempts = 0
+    private var reconnectJob: Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Login requested before the server handshake (challstr) arrived
+    private var pendingLogin: Pair<String, String?>? = null
+
+    val isConnected: Boolean get() = webSocket != null && challstr != null
 
     var currentUser: ShowdownUser = ShowdownUser()
         private set
@@ -48,14 +63,21 @@ class ShowdownClient {
 
     fun connect() {
         if (webSocket != null) return
+        userClosed = false
+        reconnectJob?.cancel()
 
-        val request = Request.Builder().url(WS_URL).build()
+        scope.launch { onStatusMessage?.invoke("Conectando a Pokémon Showdown...") }
+
+        val request = Request.Builder()
+            .url(WS_URL)
+            .header("Origin", ORIGIN)
+            .header("User-Agent", USER_AGENT)
+            .build()
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 Log.i(TAG, "Showdown WebSocket connected")
-                CoroutineScope(Dispatchers.Main).launch {
-                    onStatusMessage?.invoke("Conectado a Pokémon Showdown")
-                }
+                reconnectAttempts = 0
+                scope.launch { onStatusMessage?.invoke("Conectado a Pokémon Showdown") }
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
@@ -63,19 +85,51 @@ class ShowdownClient {
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                Log.w(TAG, "Showdown WebSocket closing: $reason")
+                Log.w(TAG, "Showdown WebSocket closing: $code $reason")
+                ws.close(1000, null)
+            }
+
+            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                Log.w(TAG, "Showdown WebSocket closed: $code $reason")
+                onSocketLost(ws, "Conexión cerrada por el servidor")
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "Showdown WebSocket failure", t)
-                CoroutineScope(Dispatchers.Main).launch {
-                    onStatusMessage?.invoke("Error de conexión: ${t.message}")
+                Log.e(TAG, "Showdown WebSocket failure (HTTP ${response?.code})", t)
+                val reason = when {
+                    response != null -> "el servidor respondió HTTP ${response.code}"
+                    t is java.net.UnknownHostException -> "sin internet o DNS bloqueado"
+                    t is java.net.SocketTimeoutException -> "tiempo de espera agotado"
+                    else -> t.message ?: t.javaClass.simpleName
                 }
+                onSocketLost(ws, "Error de conexión: $reason")
             }
         })
     }
 
+    /** Clears the dead socket and schedules a reconnection with exponential backoff. */
+    private fun onSocketLost(ws: WebSocket, message: String) {
+        scope.launch {
+            if (webSocket !== ws) return@launch // an old socket, already replaced
+            webSocket = null
+            challstr = null
+            if (userClosed) return@launch
+
+            reconnectAttempts++
+            val delaySec = minOf(30L, 1L shl minOf(reconnectAttempts, 5))
+            onStatusMessage?.invoke("$message. Reintentando en ${delaySec}s...")
+            reconnectJob?.cancel()
+            reconnectJob = launch {
+                delay(delaySec * 1000)
+                connect()
+            }
+        }
+    }
+
     fun disconnect() {
+        userClosed = true
+        reconnectJob?.cancel()
+        pendingLogin = null
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         currentBattle = null
@@ -93,9 +147,13 @@ class ShowdownClient {
     fun login(username: String, password: String? = null) {
         val chall = challstr
         if (chall == null) {
-            onLoginFailed?.invoke("Aún no se ha recibido el handshake del servidor (challstr)")
+            // Not connected yet: remember the request and run it as soon as the handshake arrives
+            pendingLogin = username to password
+            if (webSocket == null) connect()
+            onStatusMessage?.invoke("Esperando conexión con el servidor para iniciar sesión...")
             return
         }
+        pendingLogin = null
 
         val cleanUser = username.trim()
         val userId = cleanUser.lowercase().replace(Regex("[^a-z0-9]"), "")
@@ -112,12 +170,18 @@ class ShowdownClient {
 
                     val request = Request.Builder()
                         .url(LOGIN_API_URL)
+                        .header("Origin", ORIGIN)
+                        .header("User-Agent", USER_AGENT)
                         .post(formBody)
                         .build()
 
                     httpClient.newCall(request).execute().use { response ->
                         val respStr = response.body?.string()?.trim() ?: ""
-                        if (respStr.startsWith(";;")) {
+                        if (!response.isSuccessful || respStr.startsWith("<")) {
+                            withContext(Dispatchers.Main) {
+                                onLoginFailed?.invoke("El servidor de login respondió HTTP ${response.code}. Intenta de nuevo en unos segundos.")
+                            }
+                        } else if (respStr.startsWith(";;")) {
                             withContext(Dispatchers.Main) {
                                 onLoginFailed?.invoke(respStr.substring(2))
                             }
@@ -145,11 +209,19 @@ class ShowdownClient {
 
                     val request = Request.Builder()
                         .url(LOGIN_API_URL)
+                        .header("Origin", ORIGIN)
+                        .header("User-Agent", USER_AGENT)
                         .post(formBody)
                         .build()
 
                     httpClient.newCall(request).execute().use { response ->
                         val respStr = response.body?.string()?.trim() ?: ""
+                        if (!response.isSuccessful || respStr.startsWith("<")) {
+                            withContext(Dispatchers.Main) {
+                                onLoginFailed?.invoke("El servidor de login respondió HTTP ${response.code}. Intenta de nuevo en unos segundos.")
+                            }
+                            return@use
+                        }
                         val jsonStr = if (respStr.startsWith("]")) respStr.substring(1) else respStr
                         val json = JSONObject(jsonStr)
 
@@ -335,11 +407,27 @@ class ShowdownClient {
                     // |challstr|CHALLSTR
                     challstr = if (parts.size >= 4) "${parts[2]}|${parts[3]}" else parts.getOrNull(2) ?: ""
                     Log.i(TAG, "challstr received: $challstr")
+                    pendingLogin?.let { (user, pass) ->
+                        scope.launch { login(user, pass) }
+                    }
+                }
+
+                "nametaken" -> {
+                    // |nametaken|USERNAME|MESSAGE
+                    val msg = parts.drop(3).joinToString("|").ifBlank { "Nombre no disponible" }
+                    scope.launch { onLoginFailed?.invoke(msg) }
+                }
+
+                "popup" -> {
+                    val msg = parts.drop(2).joinToString("|").replace("||", "\n")
+                    if (msg.isNotBlank()) scope.launch { onStatusMessage?.invoke(msg) }
                 }
 
                 "updateuser" -> {
                     // |updateuser|USERNAME|LOGGEDIN|AVATAR
-                    val name = parts.getOrNull(2) ?: ""
+                    // Name may carry a rank prefix (" ", "+", "%"...) and an "@!" away/busy suffix
+                    val name = (parts.getOrNull(2) ?: "").trim().trimStart('+', '%', '@', '*', '#', '&', '~', '^', '☆')
+                        .substringBefore("@!")
                     val isLogged = parts.getOrNull(3) == "1"
                     val avatar = parts.getOrNull(4) ?: ""
                     currentUser = ShowdownUser(name, isLogged, avatar)
