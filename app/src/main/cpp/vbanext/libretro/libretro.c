@@ -189,6 +189,7 @@ static void check_system_specs(void)
 }
 
 static unsigned serialize_size = 0;
+static size_t loaded_save_size = 0; /* size of the last imported .sav, 0 = none */
 
 void retro_init(void)
 {
@@ -438,31 +439,50 @@ static int get_frameskip_code(void)
 }
 #endif
 
+static bool rom_has_tag(uint32_t i, const char *tag)
+{
+   size_t n = strlen(tag);
+   if (i + n > rom_size) return false;
+   return memcmp(rom + i, tag, n) == 0;
+}
+
+/* Detect the cartridge save chip from the Nintendo SDK library ID strings
+ * embedded in every commercial ROM ("EEPROM_V", "SRAM_V", "FLASH1M_V"...). */
 static void scan_rom_for_save_type(void)
 {
+   uint32_t i;
    if (!rom || rom_size < 512) return;
 
-   for (uint32_t i = 0; i < rom_size - 10; ++i) {
-      if (rom[i] == 'F' && rom[i+1] == 'L' && rom[i+2] == 'A' && rom[i+3] == 'S' && rom[i+4] == 'H') {
-         if (rom[i+5] == '1' && rom[i+6] == 'M') {
-            flashSize = 0x20000;
-            cpuSaveType = 3;
-            if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Detected FLASH1M in ROM -> 128KB Flash\n");
-            return;
-         } else if (rom[i+5] == '5' || rom[i+5] == '_') {
-            flashSize = 0x10000;
-            cpuSaveType = 3;
-            if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Detected FLASH512 in ROM -> 64KB Flash\n");
-            return;
-         }
-      } else if (rom[i] == 'S' && rom[i+1] == 'R' && rom[i+2] == 'A' && rom[i+3] == 'M' && rom[i+4] == '_') {
-         cpuSaveType = 2;
-         if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Detected SRAM in ROM\n");
-         return;
-      } else if (rom[i] == 'E' && rom[i+1] == 'E' && rom[i+2] == 'P' && rom[i+3] == 'R' && rom[i+4] == 'O' && rom[i+5] == 'M') {
-         cpuSaveType = 1;
-         if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Detected EEPROM in ROM\n");
-         return;
+   for (i = 0; i + 12 < rom_size; i += 4) {
+      switch (rom[i]) {
+         case 'F':
+            if (rom_has_tag(i, "FLASH1M_V")) {
+               flashSize = 0x20000;
+               cpuSaveType = 3;
+               if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Save chip: FLASH 128KB\n");
+               return;
+            }
+            if (rom_has_tag(i, "FLASH512_V") || rom_has_tag(i, "FLASH_V")) {
+               flashSize = 0x10000;
+               cpuSaveType = 3;
+               if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Save chip: FLASH 64KB\n");
+               return;
+            }
+            break;
+         case 'S':
+            if (rom_has_tag(i, "SRAM_V") || rom_has_tag(i, "SRAM_F_V")) {
+               cpuSaveType = 2;
+               if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Save chip: SRAM 32KB\n");
+               return;
+            }
+            break;
+         case 'E':
+            if (rom_has_tag(i, "EEPROM_V")) {
+               cpuSaveType = 1;
+               if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Save chip: EEPROM\n");
+               return;
+            }
+            break;
       }
    }
 }
@@ -480,7 +500,8 @@ static void gba_init(void)
    mirroringEnable = false;
 
    load_image_preferences();
-   scan_rom_for_save_type();
+   if (cpuSaveType == 0)
+      scan_rom_for_save_type();
 
    if(flashSize == 0x10000 || flashSize == 0x20000)
       flashSetSize(flashSize);
@@ -496,6 +517,8 @@ static void gba_init(void)
          if(enableRtc)
             rtc = true;  
    }
+   else
+      rtc = enableRtc; /* frontend without core options: trust the ROM database (Pokemon RSE need RTC) */
 
    rtcEnable(rtc);
 
@@ -849,6 +872,7 @@ bool retro_load_game(const struct retro_game_info *game)
    if (!rom_size)
       return false;
 
+   loaded_save_size = 0;
    gba_init();
    set_memory_maps();
 
@@ -906,82 +930,111 @@ void systemMessage(const char* fmt, ...)
    va_end(ap);
 }
 
+/* ---------------------------------------------------------------------------
+ * Battery save (.sav) import / export.
+ *
+ * Layout inside libretro_save_buf:
+ *   [0x00000 .. 0x1FFFF]  SRAM / FLASH (flashSaveMemory)
+ *   [0x20000 .. 0x21FFF]  EEPROM       (eepromData)
+ *
+ * .sav files from MyBoy, mGBA, VBA-M, NO$GBA... are raw chip dumps whose size
+ * identifies the chip: 512 B / 8 KB EEPROM, 32 KB SRAM, 64 KB / 128 KB FLASH.
+ * Some emulators append a small RTC footer (e.g. +16 bytes) that is dropped.
+ * ------------------------------------------------------------------------- */
+extern int saveType;
+extern bool eepromInUse;
+extern bool cpuSramEnabled;
+extern bool cpuFlashEnabled;
+extern bool cpuEEPROMEnabled;
+
+static size_t normalize_save_size(size_t size)
+{
+   if (size >= 0x20000) return 0x20000;
+   if (size >= 0x10000) return 0x10000;
+   if (size >= 0x8000)  return 0x8000;
+   if (size >= 0x2000)  return 0x2000;
+   if (size >= 512)     return 512;
+   return 0;
+}
+
+static bool core_uses_eeprom(void)
+{
+   if (cpuSaveType == 1 || cpuSaveType == 4) return true;
+   if (cpuSaveType == 0 && (eepromInUse || saveType == 3)) return true;
+   return false;
+}
+
 void retro_apply_save_data(const uint8_t* data, size_t size)
 {
+   size_t n;
    if (!data || size == 0) return;
 
-   memset(libretro_save_buf, 0xff, sizeof(libretro_save_buf));
+   n = normalize_save_size(size);
+   if (n == 0) return;
 
-   if (size >= 0x20000) {
-      size_t toCopy = (size > 0x20000) ? 0x20000 : size;
-      memcpy(libretro_save_buf, data, toCopy);
-      flashSize = 0x20000;
-      flashSetSize(0x20000);
-      libretro_save_size = 0x20000;
-      flashSaveMemory = libretro_save_buf;
-      cpuSaveType = 3;
-   } else if (size == 0x10000) {
-      memcpy(libretro_save_buf, data, 0x10000);
-      flashSize = 0x10000;
-      flashSetSize(0x10000);
-      libretro_save_size = 0x10000;
-      flashSaveMemory = libretro_save_buf;
-   } else if (size == 0x8000) {
-      memcpy(libretro_save_buf, data, 0x8000);
-      libretro_save_size = 0x8000;
-      flashSaveMemory = libretro_save_buf;
-      cpuSaveType = 2;
-   } else if (size == 0x2000) {
-      memcpy(libretro_save_buf, data, 0x2000);
-      memcpy(libretro_save_buf + 0x20000, data, 0x2000);
-      libretro_save_size = 0x2000;
-      eepromData = libretro_save_buf;
-      eepromSize = 0x2000;
-      cpuSaveType = 1;
-   } else if (size == 512) {
-      memcpy(libretro_save_buf, data, 512);
-      memcpy(libretro_save_buf + 0x20000, data, 512);
-      libretro_save_size = 512;
-      eepromData = libretro_save_buf;
-      eepromSize = 512;
-      cpuSaveType = 1;
+   flashSaveMemory = libretro_save_buf;
+   eepromData = libretro_save_buf + 0x20000;
+
+   if (n <= 0x2000 && cpuSaveType != 2 && cpuSaveType != 3) {
+      /* EEPROM dump */
+      memset(eepromData, 0xff, 0x2000);
+      memcpy(eepromData, data, n);
+      eepromSize = (int)n;
+      if (cpuSaveType == 0) {
+         cpuSaveType = 1;
+         cpuSramEnabled = false;
+         cpuFlashEnabled = false;
+         cpuEEPROMEnabled = true;
+      }
    } else {
-      size_t toCopy = (size > sizeof(libretro_save_buf)) ? sizeof(libretro_save_buf) : size;
-      memcpy(libretro_save_buf, data, toCopy);
-      libretro_save_size = toCopy;
+      /* SRAM / FLASH dump */
+      memset(flashSaveMemory, 0xff, 0x20000);
+      memcpy(flashSaveMemory, data, n);
+      if (n == 0x20000) {
+         flashSize = 0x10000; /* force flashSetSize to only update chip IDs */
+         flashSetSize(0x20000);
+      } else if (n == 0x10000 && flashSize == 0x20000) {
+         /* 64 KB dump of a 128 KB game (old VBA): mirror into bank 1 */
+         flashSize = 0x10000;
+         flashSetSize(0x20000);
+      } else if (n == 0x10000 && cpuSaveType == 3) {
+         flashSetSize(0x10000);
+      }
    }
+
+   libretro_save_size = (unsigned)n;
+   loaded_save_size = n;
+   if (log_cb) log_cb(RETRO_LOG_INFO, "[GBA] Imported %u byte battery save (file %u bytes)\n",
+         (unsigned)n, (unsigned)size);
 }
 
 void retro_get_save_data(uint8_t** out_ptr, size_t* out_size)
 {
    if (!out_ptr || !out_size) return;
+   *out_ptr = NULL;
+   *out_size = 0;
 
-   if (flashSize == 0x20000 || libretro_save_size == 0x20000) {
-      *out_ptr = flashSaveMemory ? flashSaveMemory : libretro_save_buf;
-      *out_size = 0x20000; // 131,072 bytes (Pokemon standard)
+   if (core_uses_eeprom()) {
+      *out_ptr = eepromData;
+      *out_size = (eepromSize == 0x2000 || loaded_save_size == 0x2000) ? 0x2000 : 512;
       return;
    }
 
-   if (libretro_save_size == 0x2000 || (cpuSaveType == 1 && eepromSize == 0x2000)) {
-      *out_ptr = eepromData ? eepromData : (libretro_save_buf + 0x20000);
-      *out_size = 0x2000; // 8,192 bytes
+   if (cpuSaveType == 3 || saveType == 2) {          /* FLASH */
+      *out_ptr = flashSaveMemory;
+      *out_size = (flashSize == 0x20000) ? 0x20000 : 0x10000;
       return;
    }
 
-   if (libretro_save_size == 512 || (cpuSaveType == 1 && eepromSize == 512)) {
-      *out_ptr = eepromData ? eepromData : (libretro_save_buf + 0x20000);
-      *out_size = 512;
+   if (cpuSaveType == 2 || saveType == 1) {          /* SRAM */
+      *out_ptr = flashSaveMemory;
+      *out_size = (loaded_save_size == 0x10000) ? 0x10000 : 0x8000;
       return;
    }
 
-   if (libretro_save_size == 0x8000 || (cpuSaveType == 2 && libretro_save_size <= 0x8000)) {
-      *out_ptr = flashSaveMemory ? flashSaveMemory : libretro_save_buf;
-      *out_size = 0x8000; // 32,768 bytes
-      return;
+   if (loaded_save_size > 0) {                       /* unknown chip, keep the imported size */
+      *out_ptr = (loaded_save_size <= 0x2000) ? eepromData : flashSaveMemory;
+      *out_size = loaded_save_size;
    }
-
-   // Default: 64KB Flash / SRAM
-   *out_ptr = flashSaveMemory ? flashSaveMemory : libretro_save_buf;
-   *out_size = (libretro_save_size <= 0x10000 && libretro_save_size > 0) ? libretro_save_size : 0x10000;
+   /* otherwise: the game never touched the save chip -> nothing to write */
 }
-

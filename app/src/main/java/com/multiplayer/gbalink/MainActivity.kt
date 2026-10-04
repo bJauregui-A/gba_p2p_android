@@ -1,12 +1,19 @@
 package com.multiplayer.gbalink
 
 import android.app.AlertDialog
+import android.graphics.Bitmap
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.ListView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,16 +24,23 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.multiplayer.gbalink.core.GbaEmulator
 import com.multiplayer.gbalink.core.GbaNative
 import com.multiplayer.gbalink.core.HomebrewRom
+import com.multiplayer.gbalink.core.SaveStateManager
 import com.multiplayer.gbalink.databinding.ActivityMainBinding
+import com.multiplayer.gbalink.databinding.ItemSaveSlotBinding
 import com.multiplayer.gbalink.network.P2PConnectionManager
-import com.multiplayer.gbalink.showdown.ShowdownActivity
 import com.multiplayer.gbalink.ui.GbaGlSurfaceView
 import com.multiplayer.gbalink.ui.GbaShader
 import com.multiplayer.gbalink.ui.MultiplayerDialog
 import java.io.File
 import java.io.FileInputStream
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val AUTOSAVE_INTERVAL_MS = 5_000L
+    }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var nativeCore: GbaNative
@@ -35,6 +49,21 @@ class MainActivity : AppCompatActivity() {
 
     private var currentRomName: String = "Juego"
     private var romFile: File? = null
+    private lateinit var saveStates: SaveStateManager
+
+    // Cartridge battery save (.sav) currently in use and hash of its last written content
+    private var batterySaveFile: File? = null
+    private var lastBatteryHash: Int = 0
+
+    private val autoSaveHandler = Handler(Looper.getMainLooper())
+    private val autoSaveRunnable = object : Runnable {
+        override fun run() {
+            autoSaveBattery()
+            autoSaveHandler.postDelayed(this, AUTOSAVE_INTERVAL_MS)
+        }
+    }
+
+    private fun dialogBuilder() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
 
     // SAF export save file
     private val exportSaveLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
@@ -56,7 +85,10 @@ class MainActivity : AppCompatActivity() {
                 contentResolver.openInputStream(importUri)?.use { input ->
                     val bytes = input.readBytes()
                     emulator.loadSaveData(bytes)
-                    Toast.makeText(this, "Partida cargada exitosamente (${bytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
+                    nativeCore.nativeReset()
+                    lastBatteryHash = 0
+                    autoSaveBattery()
+                    Toast.makeText(this, "Partida .sav importada (${bytes.size / 1024} KB). Juego reiniciado.", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(this, "Error al importar partida: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -110,6 +142,10 @@ class MainActivity : AppCompatActivity() {
 
         if (!romPath.isNullOrEmpty() && File(romPath).exists()) {
             romFile = File(romPath)
+        }
+        saveStates = SaveStateManager(this, romFile, currentRomName)
+
+        if (romFile != null) {
             loadRomFromFile(romFile!!)
         } else {
             val testRom = HomebrewRom.createTestRom()
@@ -150,11 +186,13 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         enableImmersiveMode()
         binding.gbaSurface.onResume()
-        emulator.resume()
+        if (!isMenuShowing) emulator.resume()
+        autoSaveHandler.postDelayed(autoSaveRunnable, AUTOSAVE_INTERVAL_MS)
     }
 
     override fun onPause() {
         super.onPause()
+        autoSaveHandler.removeCallbacks(autoSaveRunnable)
         emulator.pause()
         binding.gbaSurface.onPause()
         autoSaveBattery()
@@ -205,38 +243,157 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun autoSaveBattery() {
-        val rf = romFile ?: return
-        try {
-            val savBytes = emulator.getSaveData()
-            if (savBytes != null && savBytes.isNotEmpty()) {
-                val savFile = File(rf.parentFile, "${rf.nameWithoutExtension}.sav")
-                savFile.writeBytes(savBytes)
-                Log.i("MainActivity", "Auto-saved battery RAM (${savBytes.size} bytes) to ${savFile.absolutePath}")
-            }
+    /**
+     * Writes the cartridge battery save (.sav) only when its content changed. The file is the
+     * raw chip dump (same format as MyBoy / mGBA / VBA-M), so it can be moved between emulators.
+     */
+    private fun autoSaveBattery(force: Boolean = false): Boolean {
+        val rf = romFile ?: return false
+        return try {
+            val savBytes = emulator.getSaveData() ?: return false
+            val hash = savBytes.contentHashCode()
+            if (!force && hash == lastBatteryHash) return true
+            val savFile = batterySaveFile ?: File(rf.parentFile, "${rf.nameWithoutExtension}.sav").also { batterySaveFile = it }
+            savFile.writeBytes(savBytes)
+            lastBatteryHash = hash
+            Log.i("MainActivity", "Battery save written (${savBytes.size} bytes) to ${savFile.absolutePath}")
+            true
         } catch (e: Exception) {
             Log.e("MainActivity", "Error autosaving battery", e)
+            false
         }
     }
 
-    private fun reloadBatterySave(savName: String) {
-        val rf = romFile ?: return
-        val candidates = listOf(
-            File(rf.parentFile, "${rf.nameWithoutExtension}.sav"),
-            File(rf.parentFile, "${rf.nameWithoutExtension}.SAV")
-        )
-        val savFile = candidates.firstOrNull { it.exists() && it.length() > 0 }
-        if (savFile != null) {
-            try {
-                val bytes = savFile.readBytes()
-                emulator.loadSaveData(bytes)
-                Toast.makeText(this, "Partida recargada desde $savName (${bytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this, "Error al recargar partida: ${e.message}", Toast.LENGTH_SHORT).show()
+    /** Looks for an existing battery save written by this app, MyBoy, RetroArch (.srm), etc. */
+    private fun findBatterySave(rom: File): File? {
+        val dir = rom.parentFile ?: return null
+        val base = rom.nameWithoutExtension
+        val folders = listOf(dir, File(dir, "save"), File(dir, "saves"), File(dir, "Save"), File(dir, "Saves"))
+        val names = listOf("$base.sav", "$base.SAV", "$base.srm", "$base.SRM", "${rom.name}.sav")
+        for (folder in folders) {
+            for (name in names) {
+                val f = File(folder, name)
+                if (f.isFile && f.length() >= 512) return f
             }
-        } else {
-            Toast.makeText(this, "No se encontró el archivo $savName", Toast.LENGTH_SHORT).show()
         }
+        // Case-insensitive fallback in the ROM folder
+        return dir.listFiles()?.firstOrNull {
+            it.isFile && it.length() >= 512 &&
+                it.nameWithoutExtension.equals(base, ignoreCase = true) &&
+                (it.extension.equals("sav", true) || it.extension.equals("srm", true))
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Save states (emulator slots, MyBoy-style)
+    // ---------------------------------------------------------------------------------------
+
+    private inner class SlotAdapter(private val forLoading: Boolean) : BaseAdapter() {
+        private val slots = saveStates.slots()
+        private val thumbs = HashMap<Int, Bitmap?>()
+        private val dateFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+
+        override fun getCount() = slots.size
+        override fun getItem(position: Int) = slots[position]
+        override fun getItemId(position: Int) = position.toLong()
+        override fun isEnabled(position: Int) = !forLoading || slots[position].exists
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val b = convertView?.let { ItemSaveSlotBinding.bind(it) }
+                ?: ItemSaveSlotBinding.inflate(layoutInflater, parent, false)
+            val slot = slots[position]
+            b.slotTitle.text = "Slot ${slot.index}"
+            if (slot.exists) {
+                b.slotSubtitle.text = dateFormat.format(Date(slot.lastModified))
+                b.slotThumb.setImageBitmap(thumbs.getOrPut(slot.index) { slot.loadThumbnail() })
+                b.root.alpha = 1f
+            } else {
+                b.slotSubtitle.text = "Vacío"
+                b.slotThumb.setImageDrawable(null)
+                b.root.alpha = if (forLoading) 0.4f else 1f
+            }
+            return b.root
+        }
+    }
+
+    private fun showSlotDialog(forLoading: Boolean) {
+        emulator.pause()
+        val list = ListView(this).apply { dividerHeight = 1 }
+        list.adapter = SlotAdapter(forLoading)
+
+        val dialog = dialogBuilder()
+            .setTitle(if (forLoading) "Cargar estado" else "Guardar estado")
+            .setView(list)
+            .setNegativeButton("Cancelar", null)
+            .create()
+
+        list.setOnItemClickListener { _, _, position, _ ->
+            val slot = saveStates.slots()[position]
+            if (forLoading) {
+                dialog.dismiss()
+                loadStateSlot(slot.index)
+            } else if (slot.exists) {
+                dialogBuilder()
+                    .setTitle("Sobrescribir Slot ${slot.index}")
+                    .setMessage("Este slot ya contiene un estado guardado. ¿Reemplazarlo?")
+                    .setPositiveButton("Sobrescribir") { _, _ ->
+                        dialog.dismiss()
+                        saveStateSlot(slot.index)
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            } else {
+                dialog.dismiss()
+                saveStateSlot(slot.index)
+            }
+        }
+        list.setOnItemLongClickListener { _, _, position, _ ->
+            val slot = saveStates.slots()[position]
+            if (!slot.exists) return@setOnItemLongClickListener false
+            dialogBuilder()
+                .setTitle("Borrar Slot ${slot.index}")
+                .setMessage("¿Eliminar este estado guardado?")
+                .setPositiveButton("Borrar") { _, _ ->
+                    saveStates.delete(slot.index)
+                    list.adapter = SlotAdapter(forLoading)
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+            true
+        }
+        dialog.setOnDismissListener { resumeAfterMenu() }
+        dialog.show()
+    }
+
+    private fun saveStateSlot(index: Int) {
+        val state = emulator.saveState()
+        if (state == null) {
+            Toast.makeText(this, "Error al crear el estado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val screenshot = emulator.screenBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val ok = saveStates.save(index, state, screenshot)
+        Toast.makeText(
+            this,
+            if (ok) "Estado guardado en Slot $index" else "No se pudo escribir el Slot $index",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun loadStateSlot(index: Int) {
+        val data = saveStates.load(index)
+        if (data == null || !emulator.loadState(data)) {
+            Toast.makeText(this, "No se pudo cargar el Slot $index", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "Estado del Slot $index cargado", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Resumes emulation once no dialog of the in-game menu remains open. */
+    private fun resumeAfterMenu() {
+        isMenuShowing = false
+        enableImmersiveMode()
+        emulator.resume()
     }
 
     private fun showShaderDialog() {
@@ -244,7 +401,7 @@ class MainActivity : AppCompatActivity() {
         val names = shaders.map { it.displayName }.toTypedArray()
         val currentIdx = shaders.indexOf(binding.gbaSurface.getCurrentShader()).coerceAtLeast(0)
 
-        AlertDialog.Builder(this)
+        dialogBuilder()
             .setTitle("Filtros de Video (Shaders MyBoy)")
             .setSingleChoiceItems(names, currentIdx) { dialog, which ->
                 val selected = shaders[which]
@@ -262,6 +419,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cerrar", null)
+            .setOnDismissListener { resumeAfterMenu() }
             .show()
     }
 
@@ -275,7 +433,7 @@ class MainActivity : AppCompatActivity() {
             else -> 0
         }
 
-        AlertDialog.Builder(this)
+        dialogBuilder()
             .setTitle("Velocidad de Juego")
             .setSingleChoiceItems(speeds, currentIdx) { dialog, which ->
                 emulator.speedMultiplier = factors[which]
@@ -283,65 +441,51 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .setNegativeButton("Cerrar", null)
+            .setOnDismissListener { resumeAfterMenu() }
             .show()
     }
 
     /**
-     * In-game options menu displayed on pressing screen menu button or device Back
+     * In-game options menu displayed on pressing the screen menu button or device Back
      */
     private fun showOptionsMenu() {
         if (isMenuShowing) return
         isMenuShowing = true
         emulator.pause()
+        autoSaveBattery()
 
-        val savName = romFile?.let { "${it.nameWithoutExtension}.sav" } ?: "$currentRomName.sav"
+        val savName = batterySaveFile?.name ?: romFile?.let { "${it.nameWithoutExtension}.sav" } ?: "$currentRomName.sav"
         val speedText = if (emulator.speedMultiplier > 1.0f) "${emulator.speedMultiplier.toInt()}x" else "1x"
-        val options = arrayOf(
-            "Guardar Partida ($savName)",
-            "Cargar Partida ($savName)",
-            "Filtros de Pantalla / Shaders MyBoy",
-            "Velocidad de Juego ($speedText)",
-            "Exportar Guardado a otro destino...",
-            "Importar Guardado de otro archivo...",
-            "Cable Link P2P (Multijugador)",
-            "Pokémon Showdown",
-            "Reiniciar Partida",
-            "Cerrar Juego",
-            "Continuar"
+
+        // Each entry: label -> action. Actions that open another dialog return true so the
+        // emulator stays paused until that dialog is closed.
+        val entries = listOf<Pair<String, () -> Boolean>>(
+            "Continuar" to { false },
+            "Guardar estado..." to { showSlotDialog(forLoading = false); true },
+            "Cargar estado..." to { showSlotDialog(forLoading = true); true },
+            "Filtros de pantalla / Shaders" to { showShaderDialog(); true },
+            "Velocidad de juego ($speedText)" to { showSpeedDialog(); true },
+            "Exportar partida GBA ($savName)..." to {
+                autoSaveBattery(force = true)
+                exportSaveLauncher.launch(savName); false
+            },
+            "Importar partida GBA (.sav)..." to { importSaveLauncher.launch("*/*"); false },
+            "Cable Link P2P (Multijugador)" to { MultiplayerDialog(this, p2pManager).show(); false },
+            "Reiniciar juego" to { emulator.reset(); false },
+            "Cerrar juego" to {
+                autoSaveBattery(force = true)
+                finish(); false
+            }
         )
 
-        AlertDialog.Builder(this)
-            .setTitle("Opciones: $currentRomName")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
-                        autoSaveBattery()
-                        Toast.makeText(this, "Partida guardada en $savName", Toast.LENGTH_SHORT).show()
-                        emulator.resume()
-                    }
-                    1 -> {
-                        reloadBatterySave(savName)
-                        emulator.resume()
-                    }
-                    2 -> showShaderDialog()
-                    3 -> showSpeedDialog()
-                    4 -> exportSaveLauncher.launch(savName)
-                    5 -> importSaveLauncher.launch("*/*")
-                    6 -> MultiplayerDialog(this, p2pManager).show()
-                    7 -> startActivity(Intent(this, ShowdownActivity::class.java))
-                    8 -> {
-                        nativeCore.nativeReset()
-                        emulator.resume()
-                    }
-                    9 -> finish()
-                    10 -> emulator.resume()
-                }
-                enableImmersiveMode()
+        var openedSubDialog = false
+        dialogBuilder()
+            .setTitle(currentRomName)
+            .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
+                openedSubDialog = entries[which].second()
             }
             .setOnDismissListener {
-                isMenuShowing = false
-                enableImmersiveMode()
-                emulator.resume()
+                if (!openedSubDialog) resumeAfterMenu()
             }
             .show()
     }
@@ -354,19 +498,19 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Aviso: Error al decodificar ROM", Toast.LENGTH_SHORT).show()
             }
 
-            // Auto-load MyBoy / standard .sav battery save in the same folder
-            val candidates = listOf(
-                File(file.parentFile, "${file.nameWithoutExtension}.sav"),
-                File(file.parentFile, "${file.nameWithoutExtension}.SAV")
-            )
-            val savFile = candidates.firstOrNull { it.exists() && it.length() > 0 }
+            // Auto-load the cartridge battery save (.sav from this app, MyBoy, mGBA, VBA-M...)
+            val savFile = findBatterySave(file)
+            batterySaveFile = savFile ?: File(file.parentFile, "${file.nameWithoutExtension}.sav")
             if (savFile != null) {
                 try {
                     val savBytes = savFile.readBytes()
                     emulator.loadSaveData(savBytes)
-                    Toast.makeText(this, "Partida MyBoy cargada (${savFile.name} - ${savBytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
+                    nativeCore.nativeReset() // boot with the save present, like inserting the cartridge
+                    lastBatteryHash = emulator.getSaveData()?.contentHashCode() ?: 0
+                    Toast.makeText(this, "Partida cargada: ${savFile.name} (${savBytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
-                    Log.e("MainActivity", "Error loading adjacent .sav file", e)
+                    Log.e("MainActivity", "Error loading battery save", e)
+                    Toast.makeText(this, "No se pudo leer ${savFile.name}: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         } catch (e: Exception) {
@@ -424,6 +568,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        autoSaveHandler.removeCallbacks(autoSaveRunnable)
         autoSaveBattery()
         p2pManager.disconnect()
         emulator.stop()

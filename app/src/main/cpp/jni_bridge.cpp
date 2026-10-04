@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <mutex>
 
 #include "gba_types.h"
 #include "gba_link.h"
@@ -32,6 +33,9 @@ static int16_t s_audioBuffer[AUDIO_BUFFER_CAPACITY];
 static size_t s_audioSamples = 0;
 static uint16_t s_keypad = 0;
 static std::vector<uint8_t> s_romData;
+// Serializes every call into the (non thread-safe) core: the emulation thread runs
+// frames while the UI thread saves/loads states and battery data.
+static std::mutex s_coreMutex;
 
 static void video_refresh_callback(const void* data, unsigned width, unsigned height, size_t pitch) {
     if (!data) return;
@@ -154,6 +158,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeInit(JNIEnv* env, jobject thiz
 
 JNIEXPORT jboolean JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeLoadRom(JNIEnv* env, jobject thiz, jbyteArray romBytes) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     if (!romBytes) return JNI_FALSE;
     jsize len = env->GetArrayLength(romBytes);
     s_romData.resize(len);
@@ -172,6 +177,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeLoadRom(JNIEnv* env, jobject t
 
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeReset(JNIEnv* env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     retro_reset();
     if (g_link) g_link->reset();
 }
@@ -179,6 +185,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeReset(JNIEnv* env, jobject thi
 JNIEXPORT jint JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeRunFrame(JNIEnv* env, jobject thiz,
                                                           jobject bitmap, jshortArray audioOut, jint keyMask) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     s_keypad = static_cast<uint16_t>(keyMask);
     s_audioSamples = 0;
 
@@ -224,6 +231,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeOnSioPacketReceived(JNIEnv* en
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeGetSaveData(JNIEnv* env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     uint8_t* savePtr = nullptr;
     size_t saveSize = 0;
     retro_get_save_data(&savePtr, &saveSize);
@@ -236,6 +244,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeGetSaveData(JNIEnv* env, jobje
 
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeLoadSaveData(JNIEnv* env, jobject thiz, jbyteArray sramBytes) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     if (!sramBytes) return;
     jsize len = env->GetArrayLength(sramBytes);
     if (len <= 0) return;
@@ -249,6 +258,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeLoadSaveData(JNIEnv* env, jobj
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeSaveState(JNIEnv* env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     size_t size = retro_serialize_size();
     if (size == 0) return nullptr;
 
@@ -266,6 +276,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeSaveState(JNIEnv* env, jobject
 
 JNIEXPORT jboolean JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeLoadState(JNIEnv* env, jobject thiz, jbyteArray stateBytes) {
+    std::lock_guard<std::mutex> lock(s_coreMutex);
     if (!stateBytes) return JNI_FALSE;
     jsize len = env->GetArrayLength(stateBytes);
     if (len <= 0) return JNI_FALSE;
