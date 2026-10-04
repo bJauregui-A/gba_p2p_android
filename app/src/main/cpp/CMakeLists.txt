@@ -28,7 +28,6 @@ include_directories(
 )
 
 set(SOURCES
-    gba_link.cpp
     jni_bridge.cpp
     vbanext/src/sound.c
     vbanext/src/memory.c

@@ -2021,10 +2021,14 @@ static void BIOS_HuffUnComp (void)
 
 static void BIOS_LZ77UnCompVram (void)
 {
-int byteCount;
-int byteShift;
-uint32_t writeValue;
-int len;
+
+int byteCount;
+
+int byteShift;
+
+uint32_t writeValue;
+
+int len;
 
 	uint32_t source = bus.reg[0].I;
 	uint32_t dest = bus.reg[1].I;
@@ -5162,11 +5166,16 @@ static int armExecute (void)
 
 	do
    {
-uint32_t opcode;
-int32_t busprefetch_mask;
-int oldArmNextPC;
-int cond;
-bool cond_res;
+
+uint32_t opcode;
+
+int32_t busprefetch_mask;
+
+int oldArmNextPC;
+
+int cond;
+
+bool cond_res;
 
       clockTicks = 0;
 
@@ -8762,8 +8771,10 @@ static void gfxDrawOBJWin (int renderer_idx)
 						continue;
 					if(a0 & 0x2000)
 					{
-int xxx;
-int address;
+
+int xxx;
+
+int address;
 
 						int inc = 32;
 						if(RENDERER_IO_REGISTERS[REG_DISPCNT] & 0x40)
@@ -12475,6 +12486,273 @@ void CPUCheckDMA(int reason, int dmamask)
  * and eliminated a NULL-deref hazard on unmapped IO addresses. */
 
 
+/*============================================================
+	SERIAL LINK (Game Link cable emulated over the network)
+
+	The frontend moves packets between two emulators. Transfers
+	run in lockstep: the console that clocks a transfer (parent
+	in multi-player mode, internal clock in normal mode) blocks
+	until the other one answers, so games never see the latency.
+	Lost packets are retransmitted; a request repeated with the
+	same sequence number is answered again without re-applying.
+============================================================ */
+#include <pthread.h>
+#include <time.h>
+#include <errno.h>
+
+/* Implemented by the frontend: send one link packet to the peer. */
+extern void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply);
+
+enum { LINK_STANDALONE = 0, LINK_MASTER = 1, LINK_SLAVE = 2 };
+enum { LINK_KIND_MULTI = 1, LINK_KIND_NORMAL32 = 2, LINK_KIND_NORMAL8 = 3 };
+
+#define LINK_RETRY_MS     40
+#define LINK_MAX_RETRIES  50   /* ~2 s before giving up on the peer */
+
+static pthread_mutex_t link_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t link_cond = PTHREAD_COND_INITIALIZER;
+static int link_role = LINK_STANDALONE;
+static volatile int link_connected = 0;
+static int link_applied_connected = -1;
+static int link_peer_lost = 0;
+static uint32_t link_seq = 0;
+/* answer awaited by the clocking side */
+static int link_reply_ready = 0;
+static uint32_t link_reply_data = 0, link_reply_seq = 0;
+/* request received from the peer, applied by link_poll() on the emulation thread */
+static volatile int link_req_pending = 0;
+static int link_req_kind = 0;
+static uint32_t link_req_data = 0, link_req_seq = 0;
+static uint32_t link_last_req_seq = 0xFFFFFFFF, link_last_reply = 0;
+
+void gba_link_set_role(int role)
+{
+	pthread_mutex_lock(&link_mutex);
+	link_role = role;
+	link_seq = 0;
+	link_last_req_seq = 0xFFFFFFFF;
+	link_req_pending = 0;
+	link_reply_ready = 0;
+	link_peer_lost = 0;
+	pthread_mutex_unlock(&link_mutex);
+}
+
+void gba_link_set_connected(int connected)
+{
+	link_connected = connected ? 1 : 0;
+	link_peer_lost = 0;
+}
+
+/* Called from the network thread. */
+void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply)
+{
+	pthread_mutex_lock(&link_mutex);
+	link_peer_lost = 0;
+	if (is_reply)
+	{
+		if (seq == link_seq)
+		{
+			link_reply_data = data;
+			link_reply_seq = seq;
+			link_reply_ready = 1;
+			pthread_cond_signal(&link_cond);
+		}
+	}
+	else
+	{
+		link_req_kind = kind;
+		link_req_data = data;
+		link_req_seq = seq;
+		link_req_pending = 1;
+	}
+	pthread_mutex_unlock(&link_mutex);
+}
+
+static int link_is_multiplayer(uint16_t siocnt)
+{
+	return !(READ16LE(&ioMem[0x134]) & 0x8000) && ((siocnt >> 12) & 3) == 2;
+}
+
+/* Read-only SIOCNT bits in multi-player mode: SI (child), SD (all ready), ID. */
+static uint16_t link_multi_status(uint16_t v)
+{
+	v &= ~(0x0004 | 0x0008 | 0x0030 | 0x0040);
+	if (link_role == LINK_SLAVE)
+		v |= 0x0004 | 0x0010;
+	if (link_connected && link_role != LINK_STANDALONE)
+		v |= 0x0008;
+	return v;
+}
+
+static void link_raise_irq(uint16_t siocnt)
+{
+	if (siocnt & 0x4000)
+	{
+		uint16_t _v = io_registers[REG_IF] | 0x0080;
+		io_registers[REG_IF] = _v;
+		UPDATE_REG(0x202, _v);
+		cpuNextEvent = cpuTotalTicks;
+	}
+}
+
+static void link_complete(int kind, uint32_t own, uint32_t other, int clocking)
+{
+	uint16_t siocnt = READ16LE(&ioMem[0x128]);
+	if (kind == LINK_KIND_MULTI)
+	{
+		uint16_t parent = (uint16_t)(clocking ? own : other);
+		uint16_t child  = (uint16_t)(clocking ? other : own);
+		UPDATE_REG(0x120, parent);
+		UPDATE_REG(0x122, child);
+		UPDATE_REG(0x124, 0xFFFF);
+		UPDATE_REG(0x126, 0xFFFF);
+		siocnt = link_multi_status(siocnt & ~0x0080);
+	}
+	else if (kind == LINK_KIND_NORMAL32)
+	{
+		UPDATE_REG(0x120, (uint16_t)(other & 0xFFFF));
+		UPDATE_REG(0x122, (uint16_t)(other >> 16));
+		siocnt &= ~0x0080;
+	}
+	else
+	{
+		UPDATE_REG(0x12A, (uint16_t)((READ16LE(&ioMem[0x12A]) & 0xFF00) | (other & 0xFF)));
+		siocnt &= ~0x0080;
+	}
+	UPDATE_REG(0x128, siocnt);
+	link_raise_irq(siocnt);
+}
+
+static uint32_t link_outgoing(int kind)
+{
+	if (kind == LINK_KIND_MULTI)
+		return READ16LE(&ioMem[0x12A]);              /* SIOMLT_SEND */
+	if (kind == LINK_KIND_NORMAL32)
+		return READ16LE(&ioMem[0x120]) | ((uint32_t)READ16LE(&ioMem[0x122]) << 16);
+	return READ16LE(&ioMem[0x12A]) & 0xFF;          /* SIODATA8 */
+}
+
+/* Clocking side: send our data and wait (emulation paused) for the peer's. */
+static void link_clocked_transfer(int kind)
+{
+	uint32_t own = link_outgoing(kind);
+	uint32_t other = 0xFFFFFFFF;
+	uint32_t seq;
+	int attempt, got = 0;
+
+	if (!link_connected || link_role == LINK_STANDALONE)
+	{
+		link_complete(kind, own, other, 1);
+		return;
+	}
+	if (link_peer_lost)
+	{
+		/* Peer stopped answering (paused, backgrounded...): keep poking it without blocking;
+		 * any packet coming back clears link_peer_lost and lockstep resumes. */
+		pthread_mutex_lock(&link_mutex);
+		seq = ++link_seq;
+		pthread_mutex_unlock(&link_mutex);
+		gba_link_send(kind, own, seq, 0);
+		link_complete(kind, own, other, 1);
+		return;
+	}
+
+	pthread_mutex_lock(&link_mutex);
+	seq = ++link_seq;
+	link_reply_ready = 0;
+	pthread_mutex_unlock(&link_mutex);
+
+	for (attempt = 0; attempt < LINK_MAX_RETRIES && !got && link_connected; attempt++)
+	{
+		struct timespec ts;
+		gba_link_send(kind, own, seq, 0);
+		clock_gettime(CLOCK_REALTIME, &ts);
+		ts.tv_nsec += LINK_RETRY_MS * 1000000L;
+		if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+
+		pthread_mutex_lock(&link_mutex);
+		while (!link_reply_ready)
+			if (pthread_cond_timedwait(&link_cond, &link_mutex, &ts) == ETIMEDOUT)
+				break;
+		if (link_reply_ready && link_reply_seq == seq)
+		{
+			other = link_reply_data;
+			got = 1;
+		}
+		pthread_mutex_unlock(&link_mutex);
+	}
+
+	if (!got)
+		link_peer_lost = 1; /* don't stall every transfer until the peer talks again */
+	link_complete(kind, own, other, 1);
+}
+
+static void link_write_siocnt(uint16_t value)
+{
+	uint16_t old = READ16LE(&ioMem[0x128]);
+	int general = (READ16LE(&ioMem[0x134]) & 0x8000) != 0;
+	int mode = (value >> 12) & 3;
+
+	if (!general && mode == 2)
+	{
+		/* Multi-player: only the parent can start; children see the busy flag from the transfer */
+		int start = (value & 0x0080) && !(old & 0x0080);
+		uint16_t v = link_multi_status(value & ~0x0080);
+		if (start && link_role != LINK_SLAVE)
+		{
+			UPDATE_REG(0x128, v | 0x0080);
+			link_clocked_transfer(LINK_KIND_MULTI);
+			return;
+		}
+		UPDATE_REG(0x128, v | (old & 0x0080));
+		return;
+	}
+
+	UPDATE_REG(0x128, value);
+	if (!general && (mode == 0 || mode == 1) && (value & 0x0080) && (value & 0x0001))
+	{
+		/* Normal mode with internal clock: this console drives the transfer */
+		link_clocked_transfer(mode == 1 ? LINK_KIND_NORMAL32 : LINK_KIND_NORMAL8);
+	}
+}
+
+/* Emulation thread: answer a transfer clocked by the peer. */
+static void link_poll(void)
+{
+	int kind;
+	uint32_t data, seq, reply;
+
+	if (link_applied_connected != link_connected)
+	{
+		uint16_t siocnt = READ16LE(&ioMem[0x128]);
+		link_applied_connected = link_connected;
+		if (link_is_multiplayer(siocnt))
+			UPDATE_REG(0x128, link_multi_status(siocnt));
+	}
+
+	if (!link_req_pending)
+		return;
+
+	pthread_mutex_lock(&link_mutex);
+	kind = link_req_kind;
+	data = link_req_data;
+	seq = link_req_seq;
+	link_req_pending = 0;
+	pthread_mutex_unlock(&link_mutex);
+
+	if (seq == link_last_req_seq)
+	{
+		gba_link_send(kind, link_last_reply, seq, 1); /* our answer got lost: repeat it */
+		return;
+	}
+
+	reply = link_outgoing(kind);
+	gba_link_send(kind, reply, seq, 1);
+	link_last_req_seq = seq;
+	link_last_reply = reply;
+	link_complete(kind, reply, data, 0);
+}
+
 void CPUUpdateRegister(uint32_t address, uint16_t value)
 {
 	switch(address)
@@ -12836,6 +13114,9 @@ void CPUUpdateRegister(uint32_t address, uint16_t value)
 			timer3Value = value;
 			timerOnOffDelay|=8;
 			cpuNextEvent = cpuTotalTicks;
+			break;
+		case 0x128: /* SIOCNT */
+			link_write_siocnt(value);
 			break;
 		case 0x130:
 			{ uint16_t _v = (io_registers[REG_P1]) | ((value & 0x3FF)); io_registers[REG_P1] = _v; UPDATE_REG(0x130, _v); }
@@ -13708,6 +13989,8 @@ updateLoop:
 					cpuDmaTicksToUpdate = 0;
 				goto updateLoop;
 			}
+
+			link_poll();
 
 			if(io_registers[REG_IF] && (io_registers[REG_IME] & 1) && armIrqEnable)
 			{

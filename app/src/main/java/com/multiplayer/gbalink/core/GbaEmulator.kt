@@ -148,9 +148,6 @@ class GbaEmulator(private val nativeCore: GbaNative) {
         nativeCore.nativeSetLinkRole(role)
     }
 
-    fun onSioPacketReceived(masterData: Short, slaveData: Short) {
-        nativeCore.nativeOnSioPacketReceived(masterData, slaveData)
-    }
 
     fun getSaveData(): ByteArray? = nativeCore.nativeGetSaveData()
 

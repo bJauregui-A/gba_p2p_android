@@ -7,8 +7,6 @@
 #include <algorithm>
 #include <mutex>
 
-#include "gba_types.h"
-#include "gba_link.h"
 #include "vbanext/libretro-common/include/libretro.h"
 
 #define TAG "GbaJniBridge"
@@ -17,14 +15,34 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-static std::unique_ptr<GbaLink> g_link;
 static JavaVM* g_jvm = nullptr;
 static jobject g_nativeListener = nullptr;
-static jmethodID g_onSioMasterTransferMethod = nullptr;
+static jmethodID g_onLinkSendMethod = nullptr;
 
 extern "C" {
 void retro_apply_save_data(const uint8_t* data, size_t size);
 void retro_get_save_data(uint8_t** out_ptr, size_t* out_size);
+
+// Serial link emulation in the core (vbanext/src/gba.c)
+void gba_link_set_role(int role);
+void gba_link_set_connected(int connected);
+void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply);
+
+// Called by the core (emulation thread) to send a link packet to the peer
+void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply) {
+    if (!g_jvm || !g_nativeListener || !g_onLinkSendMethod) return;
+    JNIEnv* env = nullptr;
+    bool attached = false;
+    if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
+        if (g_jvm->AttachCurrentThread(&env, nullptr) != 0) return;
+        attached = true;
+    }
+    env->CallVoidMethod(g_nativeListener, g_onLinkSendMethod,
+                        static_cast<jint>(kind), static_cast<jint>(data),
+                        static_cast<jint>(seq), static_cast<jboolean>(is_reply != 0));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (attached) g_jvm->DetachCurrentThread();
+}
 }
 
 static uint32_t s_framebuffer[240 * 160];
@@ -115,8 +133,6 @@ extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeInit(JNIEnv* env, jobject thiz) {
-    g_link = std::make_unique<GbaLink>(nullptr);
-
     if (g_nativeListener) {
         env->DeleteGlobalRef(g_nativeListener);
         g_nativeListener = nullptr;
@@ -124,28 +140,9 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeInit(JNIEnv* env, jobject thiz
     g_nativeListener = env->NewGlobalRef(thiz);
 
     jclass cls = env->GetObjectClass(thiz);
-    g_onSioMasterTransferMethod = env->GetMethodID(cls, "onSioMasterTransfer", "(S)V");
-
-    g_link->setTransferCallback([](u16 masterData) {
-        if (!g_jvm || !g_nativeListener || !g_onSioMasterTransferMethod) return;
-
-        JNIEnv* currentEnv = nullptr;
-        bool attached = false;
-        int status = g_jvm->GetEnv((void**)&currentEnv, JNI_VERSION_1_6);
-        if (status == JNI_EDETACHED) {
-            if (g_jvm->AttachCurrentThread(&currentEnv, nullptr) == 0) {
-                attached = true;
-            }
-        }
-
-        if (currentEnv && g_onSioMasterTransferMethod) {
-            currentEnv->CallVoidMethod(g_nativeListener, g_onSioMasterTransferMethod, static_cast<jshort>(masterData));
-        }
-
-        if (attached) {
-            g_jvm->DetachCurrentThread();
-        }
-    });
+    g_onLinkSendMethod = env->GetMethodID(cls, "onLinkSend", "(IIIZ)V");
+    gba_link_set_role(0);
+    gba_link_set_connected(0);
 
     retro_set_environment(environment_callback);
     retro_set_video_refresh(video_refresh_callback);
@@ -179,7 +176,6 @@ JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeReset(JNIEnv* env, jobject thiz) {
     std::lock_guard<std::mutex> lock(s_coreMutex);
     retro_reset();
-    if (g_link) g_link->reset();
 }
 
 JNIEXPORT jint JNICALL
@@ -214,19 +210,22 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeSetKeypad(JNIEnv* env, jobject
     s_keypad = static_cast<uint16_t>(keyMask);
 }
 
+// Link calls don't take s_coreMutex: the emulation thread may be blocked inside a link
+// transfer (holding it) waiting precisely for these.
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeSetLinkRole(JNIEnv* env, jobject thiz, jint role) {
-    if (g_link) {
-        g_link->setRole(static_cast<LinkRole>(role));
-    }
+    gba_link_set_role(role);
 }
 
 JNIEXPORT void JNICALL
-Java_com_multiplayer_gbalink_core_GbaNative_nativeOnSioPacketReceived(JNIEnv* env, jobject thiz,
-                                                                    jshort masterData, jshort slaveData) {
-    if (g_link) {
-        g_link->onPacketReceived(static_cast<u16>(masterData), static_cast<u16>(slaveData));
-    }
+Java_com_multiplayer_gbalink_core_GbaNative_nativeSetLinkConnected(JNIEnv* env, jobject thiz, jboolean connected) {
+    gba_link_set_connected(connected ? 1 : 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_multiplayer_gbalink_core_GbaNative_nativeLinkReceive(JNIEnv* env, jobject thiz,
+                                                             jint kind, jint data, jint seq, jboolean isReply) {
+    gba_link_receive(kind, static_cast<uint32_t>(data), static_cast<uint32_t>(seq), isReply ? 1 : 0);
 }
 
 JNIEXPORT jbyteArray JNICALL

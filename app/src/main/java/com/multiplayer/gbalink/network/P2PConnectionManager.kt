@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class P2PConnectionManager(
     private val emulator: GbaEmulator,
     private val nativeCore: GbaNative
-) : GbaNative.SioListener {
+) : GbaNative.LinkListener {
 
     companion object {
         private const val TAG = "P2PManager"
@@ -66,7 +66,7 @@ class P2PConnectionManager(
     private var lastSequence: Int = 0
 
     init {
-        nativeCore.sioListener = this
+        nativeCore.linkListener = this
     }
 
     /** Room code = version + public IP:port + LAN IPv4 (same port), base64url. */
@@ -332,18 +332,9 @@ class P2PConnectionManager(
                 }
             }
 
-            LinkCableProtocol.MSG_SIO_TRANSFER -> {
-                val sio = LinkCableProtocol.parseSioTransfer(data) ?: return
-                if (isMaster) {
-                    // Master receives Slave's response -> Complete SIO transfer in native core
-                    emulator.onSioPacketReceived(sio.masterData, sio.slaveData)
-                } else {
-                    // Slave receives Master's transfer request
-                    // Reply back with our local SIOMLT_SEND and trigger IRQ
-                    val localData: Short = 0x0000 // In native core, it reads m_siomlt_send
-                    sendPacket(LinkCableProtocol.buildSioTransferPacket(sio.masterData, localData, sio.sequence))
-                    emulator.onSioPacketReceived(sio.masterData, localData)
-                }
+            LinkCableProtocol.MSG_LINK -> {
+                val p = LinkCableProtocol.parseLinkPacket(data, length) ?: return
+                nativeCore.nativeLinkReceive(p.kind, p.data, p.seq, p.isReply)
             }
 
             LinkCableProtocol.MSG_PING -> {
@@ -365,19 +356,10 @@ class P2PConnectionManager(
         }
     }
 
-    /**
-     * SioListener callback from C++ JNI when Master initiates transfer
-     */
-    override fun onSioMasterTransferInitiated(masterData: Short) {
-        if (connectionState != STATE_CONNECTED || peerAddress == null) {
-            // Standalone fallback: echo back
-            emulator.onSioPacketReceived(masterData, 0xFFFF.toShort())
-            return
-        }
-
-        lastSequence++
-        val packet = LinkCableProtocol.buildSioTransferPacket(masterData, 0xFFFF.toShort(), lastSequence)
-        sendPacket(packet)
+    /** Emulated serial port → peer (called on the emulation thread, must not block). */
+    override fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean) {
+        if (connectionState != STATE_CONNECTED) return
+        sendPacket(LinkCableProtocol.buildLinkPacket(kind, data, seq, isReply))
     }
 
     private fun sendPacket(data: ByteArray) {
@@ -393,6 +375,8 @@ class P2PConnectionManager(
 
     private fun updateState(newState: Int, message: String) {
         connectionState = newState
+        // Plug / unplug the virtual Game Link cable
+        nativeCore.nativeSetLinkConnected(newState == STATE_CONNECTED)
         CoroutineScope(Dispatchers.Main).launch {
             onStateChanged?.invoke(newState, message)
         }

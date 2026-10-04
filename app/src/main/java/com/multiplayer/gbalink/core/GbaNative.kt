@@ -34,11 +34,12 @@ class GbaNative {
         const val KEY_L = 1 shl 9
     }
 
-    interface SioListener {
-        fun onSioMasterTransferInitiated(masterData: Short)
+    /** Receives Game Link packets produced by the emulated serial port (emulation thread). */
+    interface LinkListener {
+        fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean)
     }
 
-    var sioListener: SioListener? = null
+    var linkListener: LinkListener? = null
 
     // JNI Native Methods
     external fun nativeInit()
@@ -47,17 +48,15 @@ class GbaNative {
     external fun nativeRunFrame(bitmap: Bitmap?, audioOut: ShortArray?, keyMask: Int): Int
     external fun nativeSetKeypad(keyMask: Int)
     external fun nativeSetLinkRole(role: Int)
-    external fun nativeOnSioPacketReceived(masterData: Short, slaveData: Short)
+    external fun nativeSetLinkConnected(connected: Boolean)
+    external fun nativeLinkReceive(kind: Int, data: Int, seq: Int, isReply: Boolean)
     external fun nativeGetSaveData(): ByteArray?
     external fun nativeLoadSaveData(sramBytes: ByteArray)
     external fun nativeSaveState(): ByteArray?
     external fun nativeLoadState(stateBytes: ByteArray): Boolean
 
-    /**
-     * Called from C++ JNI when Master initiates an SIO transfer
-     */
-    fun onSioMasterTransfer(masterData: Short) {
-        Log.d(TAG, "SIO Master transfer initiated: 0x${(masterData.toInt() and 0xFFFF).toString(16).uppercase()}")
-        sioListener?.onSioMasterTransferInitiated(masterData)
+    /** Called from C++ (emulation thread) when the serial port sends a packet to the peer. */
+    fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean) {
+        linkListener?.onLinkSend(kind, data, seq, isReply)
     }
 }
