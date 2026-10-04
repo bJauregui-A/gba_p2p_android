@@ -26,10 +26,10 @@ void retro_get_save_data(uint8_t** out_ptr, size_t* out_size);
 // Serial link emulation in the core (vbanext/src/gba.c)
 void gba_link_set_role(int role);
 void gba_link_set_connected(int connected);
-void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply);
+void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply, uint32_t cycles);
 
 // Called by the core (emulation thread) to send a link packet to the peer
-void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply) {
+void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply, uint32_t cycles) {
     if (!g_jvm || !g_nativeListener || !g_onLinkSendMethod) return;
     JNIEnv* env = nullptr;
     bool attached = false;
@@ -39,7 +39,8 @@ void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply) {
     }
     env->CallVoidMethod(g_nativeListener, g_onLinkSendMethod,
                         static_cast<jint>(kind), static_cast<jint>(data),
-                        static_cast<jint>(seq), static_cast<jboolean>(is_reply != 0));
+                        static_cast<jint>(seq), static_cast<jboolean>(is_reply != 0),
+                        static_cast<jint>(cycles));
     if (env->ExceptionCheck()) env->ExceptionClear();
     if (attached) g_jvm->DetachCurrentThread();
 }
@@ -140,7 +141,7 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeInit(JNIEnv* env, jobject thiz
     g_nativeListener = env->NewGlobalRef(thiz);
 
     jclass cls = env->GetObjectClass(thiz);
-    g_onLinkSendMethod = env->GetMethodID(cls, "onLinkSend", "(IIIZ)V");
+    g_onLinkSendMethod = env->GetMethodID(cls, "onLinkSend", "(IIIZI)V");
     gba_link_set_role(0);
     gba_link_set_connected(0);
 
@@ -224,8 +225,10 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeSetLinkConnected(JNIEnv* env, 
 
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeLinkReceive(JNIEnv* env, jobject thiz,
-                                                             jint kind, jint data, jint seq, jboolean isReply) {
-    gba_link_receive(kind, static_cast<uint32_t>(data), static_cast<uint32_t>(seq), isReply ? 1 : 0);
+                                                             jint kind, jint data, jint seq, jboolean isReply,
+                                                             jint cycles) {
+    gba_link_receive(kind, static_cast<uint32_t>(data), static_cast<uint32_t>(seq), isReply ? 1 : 0,
+                     static_cast<uint32_t>(cycles));
 }
 
 JNIEXPORT jbyteArray JNICALL

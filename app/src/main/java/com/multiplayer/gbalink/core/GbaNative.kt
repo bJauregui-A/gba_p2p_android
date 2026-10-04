@@ -36,7 +36,7 @@ class GbaNative {
 
     /** Receives Game Link packets produced by the emulated serial port (emulation thread). */
     interface LinkListener {
-        fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean)
+        fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int)
     }
 
     var linkListener: LinkListener? = null
@@ -49,14 +49,14 @@ class GbaNative {
     external fun nativeSetKeypad(keyMask: Int)
     external fun nativeSetLinkRole(role: Int)
     external fun nativeSetLinkConnected(connected: Boolean)
-    external fun nativeLinkReceive(kind: Int, data: Int, seq: Int, isReply: Boolean)
+    external fun nativeLinkReceive(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int)
     external fun nativeGetSaveData(): ByteArray?
     external fun nativeLoadSaveData(sramBytes: ByteArray)
     external fun nativeSaveState(): ByteArray?
     external fun nativeLoadState(stateBytes: ByteArray): Boolean
 
     /** Called from C++ (emulation thread) when the serial port sends a packet to the peer. */
-    fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean) {
-        linkListener?.onLinkSend(kind, data, seq, isReply)
+    fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int) {
+        linkListener?.onLinkSend(kind, data, seq, isReply, cycles)
     }
 }

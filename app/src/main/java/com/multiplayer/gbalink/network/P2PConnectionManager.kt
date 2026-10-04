@@ -334,7 +334,7 @@ class P2PConnectionManager(
 
             LinkCableProtocol.MSG_LINK -> {
                 val p = LinkCableProtocol.parseLinkPacket(data, length) ?: return
-                nativeCore.nativeLinkReceive(p.kind, p.data, p.seq, p.isReply)
+                nativeCore.nativeLinkReceive(p.kind, p.data, p.seq, p.isReply, p.cycles)
             }
 
             LinkCableProtocol.MSG_PING -> {
@@ -357,9 +357,9 @@ class P2PConnectionManager(
     }
 
     /** Emulated serial port → peer (called on the emulation thread, must not block). */
-    override fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean) {
+    override fun onLinkSend(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int) {
         if (connectionState != STATE_CONNECTED) return
-        sendPacket(LinkCableProtocol.buildLinkPacket(kind, data, seq, isReply))
+        sendPacket(LinkCableProtocol.buildLinkPacket(kind, data, seq, isReply, cycles))
     }
 
     private fun sendPacket(data: ByteArray) {

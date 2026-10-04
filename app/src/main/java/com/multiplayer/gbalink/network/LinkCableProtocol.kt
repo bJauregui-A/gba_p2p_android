@@ -11,25 +11,32 @@ object LinkCableProtocol {
     const val MSG_DISCONNECT: Byte = 0x05
     const val MSG_LINK: Byte = 0x06
 
-    /** Serial port packet: [type, kind, isReply, data(u32), seq(u32)] little endian. */
-    class LinkPacket(val kind: Int, val data: Int, val seq: Int, val isReply: Boolean)
+    /**
+     * Serial port packet: [type, kind, isReply, data(u32), seq(u32), cycles(u32)] little endian.
+     * kind 1-3 = transfer (multi-player, normal 32, normal 8), 4 = clock sync; cycles = emulated
+     * CPU cycles since the cable was plugged.
+     */
+    class LinkPacket(val kind: Int, val data: Int, val seq: Int, val isReply: Boolean, val cycles: Int)
 
-    fun buildLinkPacket(kind: Int, data: Int, seq: Int, isReply: Boolean): ByteArray {
-        val buffer = ByteBuffer.allocate(11).order(ByteOrder.LITTLE_ENDIAN)
+    fun buildLinkPacket(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int): ByteArray {
+        val buffer = ByteBuffer.allocate(15).order(ByteOrder.LITTLE_ENDIAN)
         buffer.put(MSG_LINK)
         buffer.put(kind.toByte())
         buffer.put(if (isReply) 1 else 0)
         buffer.putInt(data)
         buffer.putInt(seq)
+        buffer.putInt(cycles)
         return buffer.array()
     }
 
     fun parseLinkPacket(payload: ByteArray, length: Int): LinkPacket? {
-        if (length < 11 || payload[0] != MSG_LINK) return null
-        val buffer = ByteBuffer.wrap(payload, 1, 10).order(ByteOrder.LITTLE_ENDIAN)
+        if (length < 15 || payload[0] != MSG_LINK) return null
+        val buffer = ByteBuffer.wrap(payload, 1, 14).order(ByteOrder.LITTLE_ENDIAN)
         val kind = buffer.get().toInt()
         val isReply = buffer.get().toInt() != 0
-        return LinkPacket(kind, buffer.int, buffer.int, isReply)
+        val data = buffer.int
+        val seq = buffer.int
+        return LinkPacket(kind, data, seq, isReply, buffer.int)
     }
 
     fun buildHandshakePacket(role: Int, romCrc: Int): ByteArray {
