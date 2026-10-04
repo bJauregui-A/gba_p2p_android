@@ -11,7 +11,15 @@ import android.view.View
 import com.multiplayer.gbalink.core.GbaNative
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
+/**
+ * MyBoy-style virtual gamepad.
+ *
+ * Portrait: drawn on its own panel below the screen. Landscape: translucent overlay on both sides
+ * of the game picture. Every size derives from one unit [u] so it scales with any phone.
+ */
 class TouchControllerView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -22,212 +30,318 @@ class TouchControllerView @JvmOverloads constructor(
 
     private var currentKeyMask: Int = 0
     private val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val density = resources.displayMetrics.density
 
-    // Paints
-    private val dpadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#442C3042")
-        style = Paint.Style.FILL
-    }
-    private val dpadHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#99686DE0")
-        style = Paint.Style.FILL
-    }
-    private val btnAPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#AAEB4D4B")
-        style = Paint.Style.FILL
-    }
-    private val btnBPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#AAF0932B")
-        style = Paint.Style.FILL
-    }
-    private val btnShoulderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#8830336B")
-        style = Paint.Style.FILL
-    }
-    private val btnMenuPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#77535C68")
-        style = Paint.Style.FILL
-    }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 36f
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
-    }
+    private var isPortrait = true
+    private var u = 0f
 
-    // Geometry layout
-    private var dpadCenterX = 0f
-    private var dpadCenterY = 0f
-    private var dpadRadius = 0f
+    // ---- Geometry ----
+    private var dpadX = 0f
+    private var dpadY = 0f
+    private var dpadArm = 0f            // half length of each arm
+    private var dpadThick = 0f          // width of each arm
+    private val dpadPath = Path()
 
-    private var btnAX = 0f
-    private var btnAY = 0f
-    private var btnBX = 0f
-    private var btnBY = 0f
-    private var actionRadius = 0f
+    private var aX = 0f; private var aY = 0f
+    private var bX = 0f; private var bY = 0f
+    private var abRadius = 0f
 
     private val rectL = RectF()
     private val rectR = RectF()
     private val rectSelect = RectF()
     private val rectStart = RectF()
 
+    // ---- Paints ----
+    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+    }
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        letterSpacing = 0.12f
+    }
+    private val tmpPath = Path()
+
+    // ---- Palette (alpha depends on orientation: overlay must not hide the game) ----
+    private val accent = Color.parseColor("#686DE0")
+    private val colorA = Color.parseColor("#E8505B")
+    private val colorB = Color.parseColor("#F0A030")
+
+    private fun idleFill() = if (isPortrait) Color.argb(40, 255, 255, 255) else Color.argb(34, 255, 255, 255)
+    private fun idleStroke() = if (isPortrait) Color.argb(70, 255, 255, 255) else Color.argb(90, 255, 255, 255)
+    private fun withAlpha(color: Int, alpha: Int) = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        isPortrait = h >= w * 0.75f
+        if (isPortrait) layoutPortrait(w.toFloat(), h.toFloat()) else layoutLandscape(w.toFloat(), h.toFloat())
+        buildDpadPath()
 
-        val isPortrait = h >= w
-        if (isPortrait) {
-            // Portrait MyBoy gamepad layout (controls in lower portion of phone)
-            val shoulderW = w * 0.38f
-            val shoulderH = h * 0.12f
-            rectL.set(24f, 20f, 24f + shoulderW, 20f + shoulderH)
-            rectR.set(w - 24f - shoulderW, 20f, w - 24f, 20f + shoulderH)
+        panelPaint.shader = if (isPortrait) LinearGradient(
+            0f, 0f, 0f, h.toFloat(),
+            Color.parseColor("#FF161A2B"), Color.parseColor("#FF0C0E16"), Shader.TileMode.CLAMP
+        ) else null
+        labelPaint.textSize = u * 0.62f
+        captionPaint.textSize = u * 0.26f
+    }
 
-            dpadRadius = w * 0.22f
-            dpadCenterX = w * 0.28f
-            dpadCenterY = h * 0.48f
+    private fun layoutPortrait(w: Float, h: Float) {
+        u = min(w / 9f, h / 6.2f)
+        val m = u * 0.35f
 
-            actionRadius = w * 0.12f
-            btnAX = w - actionRadius * 1.5f
-            btnAY = h * 0.42f
-            btnBX = w - actionRadius * 2.8f
-            btnBY = h * 0.54f
+        // Shoulders hug the top corners
+        val shW = u * 2.7f
+        val shH = u * 0.85f
+        rectL.set(m, m, m + shW, m + shH)
+        rectR.set(w - m - shW, m, w - m, m + shH)
 
-            val menuW = w * 0.18f
-            val menuH = h * 0.08f
-            val midX = w * 0.5f
-            val midY = h * 0.78f
-            rectSelect.set(midX - menuW * 1.2f, midY, midX - menuW * 0.2f, midY + menuH)
-            rectStart.set(midX + menuW * 0.2f, midY, midX + menuW * 1.2f, midY + menuH)
-        } else {
-            // Landscape layout (controls overlaid on left & right of screen)
-            dpadRadius = h * 0.22f
-            dpadCenterX = dpadRadius * 1.3f
-            dpadCenterY = h - dpadRadius * 1.3f
+        // D-pad left, A/B right, both centred in the space between shoulders and start/select
+        dpadArm = u * 1.55f
+        dpadThick = u * 1.05f
+        val midY = rectL.bottom + (h - rectL.bottom - u * 1.3f) * 0.5f
+        dpadX = max(w * 0.26f, m + dpadArm + u * 0.3f)
+        dpadY = midY
 
-            actionRadius = h * 0.12f
-            btnAX = w - actionRadius * 1.4f
-            btnAY = h - actionRadius * 2.2f
-            btnBX = w - actionRadius * 2.8f
-            btnBY = h - actionRadius * 1.4f
+        abRadius = u * 0.82f
+        aX = min(w * 0.83f, w - m - abRadius - u * 0.3f)
+        aY = midY - u * 0.55f
+        bX = aX - u * 2.0f
+        bY = midY + u * 0.55f
 
-            val shoulderW = w * 0.16f
-            val shoulderH = h * 0.12f
-            rectL.set(24f, 24f, 24f + shoulderW, 24f + shoulderH)
-            rectR.set(w - 24f - shoulderW, 24f, w - 24f, 24f + shoulderH)
+        val pillW = u * 1.75f
+        val pillH = u * 0.55f
+        val pillY = h - m - u * 0.45f - pillH
+        rectSelect.set(w / 2 - u * 0.25f - pillW, pillY, w / 2 - u * 0.25f, pillY + pillH)
+        rectStart.set(w / 2 + u * 0.25f, pillY, w / 2 + u * 0.25f + pillW, pillY + pillH)
+    }
 
-            val menuW = w * 0.09f
-            val menuH = h * 0.07f
-            val midX = w * 0.5f
-            val midY = h - menuH * 1.6f
-            rectSelect.set(midX - menuW * 1.2f, midY, midX - menuW * 0.2f, midY + menuH)
-            rectStart.set(midX + menuW * 0.2f, midY, midX + menuW * 1.2f, midY + menuH)
+    private fun layoutLandscape(w: Float, h: Float) {
+        u = h / 6.6f
+        val m = u * 0.35f
+
+        val shW = u * 2.8f
+        val shH = u * 0.85f
+        rectL.set(m, m, m + shW, m + shH)
+        rectR.set(w - m - shW, m, w - m, m + shH)
+
+        dpadArm = u * 1.5f
+        dpadThick = u * 1.0f
+        dpadX = m + u * 0.5f + dpadArm
+        dpadY = h - m - u * 0.6f - dpadArm
+
+        abRadius = u * 0.8f
+        aX = w - m - u * 0.4f - abRadius
+        aY = h - m - u * 2.2f
+        bX = aX - u * 1.95f
+        bY = aY + u * 0.95f
+
+        val pillW = u * 1.6f
+        val pillH = u * 0.5f
+        val pillY = h - m - pillH
+        rectSelect.set(w / 2 - u * 0.2f - pillW, pillY, w / 2 - u * 0.2f, pillY + pillH)
+        rectStart.set(w / 2 + u * 0.2f, pillY, w / 2 + u * 0.2f + pillW, pillY + pillH)
+    }
+
+    private fun buildDpadPath() {
+        val r = dpadThick * 0.22f
+        val horizontal = Path().apply {
+            addRoundRect(dpadX - dpadArm, dpadY - dpadThick / 2, dpadX + dpadArm, dpadY + dpadThick / 2, r, r, Path.Direction.CW)
         }
+        val vertical = Path().apply {
+            addRoundRect(dpadX - dpadThick / 2, dpadY - dpadArm, dpadX + dpadThick / 2, dpadY + dpadArm, r, r, Path.Direction.CW)
+        }
+        dpadPath.reset()
+        dpadPath.op(horizontal, vertical, Path.Op.UNION)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (u <= 0f) return
 
-        // 1. Draw D-Pad
-        canvas.drawCircle(dpadCenterX, dpadCenterY, dpadRadius, dpadPaint)
-        // Cross shapes
-        val armW = dpadRadius * 0.65f
-        val armH = dpadRadius * 1.8f
-        canvas.drawRoundRect(dpadCenterX - armW / 2, dpadCenterY - armH / 2, dpadCenterX + armW / 2, dpadCenterY + armH / 2, 16f, 16f, dpadPaint)
-        canvas.drawRoundRect(dpadCenterX - armH / 2, dpadCenterY - armW / 2, dpadCenterX + armH / 2, dpadCenterY + armW / 2, 16f, 16f, dpadPaint)
+        if (isPortrait) canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), panelPaint)
 
-        // D-Pad active highlights
-        if (currentKeyMask and GbaNative.KEY_UP != 0) canvas.drawCircle(dpadCenterX, dpadCenterY - dpadRadius * 0.6f, dpadRadius * 0.3f, dpadHighlightPaint)
-        if (currentKeyMask and GbaNative.KEY_DOWN != 0) canvas.drawCircle(dpadCenterX, dpadCenterY + dpadRadius * 0.6f, dpadRadius * 0.3f, dpadHighlightPaint)
-        if (currentKeyMask and GbaNative.KEY_LEFT != 0) canvas.drawCircle(dpadCenterX - dpadRadius * 0.6f, dpadCenterY, dpadRadius * 0.3f, dpadHighlightPaint)
-        if (currentKeyMask and GbaNative.KEY_RIGHT != 0) canvas.drawCircle(dpadCenterX + dpadRadius * 0.6f, dpadCenterY, dpadRadius * 0.3f, dpadHighlightPaint)
-
-        // 2. Draw A and B buttons
-        canvas.drawCircle(btnAX, btnAY, actionRadius, btnAPaint)
-        canvas.drawText("A", btnAX, btnAY + 12f, textPaint)
-
-        canvas.drawCircle(btnBX, btnBY, actionRadius, btnBPaint)
-        canvas.drawText("B", btnBX, btnBY + 12f, textPaint)
-
-        // 3. Draw L and R Bumpers
-        canvas.drawRoundRect(rectL, 16f, 16f, btnShoulderPaint)
-        canvas.drawText("L", rectL.centerX(), rectL.centerY() + 12f, textPaint)
-
-        canvas.drawRoundRect(rectR, 16f, 16f, btnShoulderPaint)
-        canvas.drawText("R", rectR.centerX(), rectR.centerY() + 12f, textPaint)
-
-        // 4. Draw Select and Start
-        canvas.drawRoundRect(rectSelect, 12f, 12f, btnMenuPaint)
-        canvas.drawText("SELECT", rectSelect.centerX(), rectSelect.centerY() + 8f, textPaint.apply { textSize = 20f })
-
-        canvas.drawRoundRect(rectStart, 12f, 12f, btnMenuPaint)
-        canvas.drawText("START", rectStart.centerX(), rectStart.centerY() + 8f, textPaint.apply { textSize = 20f })
+        drawDpad(canvas)
+        drawRoundButton(canvas, aX, aY, colorA, "A", GbaNative.KEY_A)
+        drawRoundButton(canvas, bX, bY, colorB, "B", GbaNative.KEY_B)
+        drawShoulder(canvas, rectL, "L", GbaNative.KEY_L)
+        drawShoulder(canvas, rectR, "R", GbaNative.KEY_R)
+        drawPill(canvas, rectSelect, "SELECT", GbaNative.KEY_SELECT)
+        drawPill(canvas, rectStart, "START", GbaNative.KEY_START)
     }
+
+    private fun pressed(key: Int) = currentKeyMask and key != 0
+
+    private fun drawDpad(canvas: Canvas) {
+        // Soft circular base behind the cross
+        fillPaint.color = if (isPortrait) Color.argb(22, 255, 255, 255) else Color.argb(14, 255, 255, 255)
+        canvas.drawCircle(dpadX, dpadY, dpadArm * 1.12f, fillPaint)
+
+        fillPaint.color = idleFill()
+        canvas.drawPath(dpadPath, fillPaint)
+
+        // Highlight pressed arms
+        fillPaint.color = withAlpha(accent, 150)
+        val half = dpadThick / 2
+        val r = dpadThick * 0.22f
+        if (pressed(GbaNative.KEY_UP)) canvas.drawRoundRect(dpadX - half, dpadY - dpadArm, dpadX + half, dpadY - half * 0.3f, r, r, fillPaint)
+        if (pressed(GbaNative.KEY_DOWN)) canvas.drawRoundRect(dpadX - half, dpadY + half * 0.3f, dpadX + half, dpadY + dpadArm, r, r, fillPaint)
+        if (pressed(GbaNative.KEY_LEFT)) canvas.drawRoundRect(dpadX - dpadArm, dpadY - half, dpadX - half * 0.3f, dpadY + half, r, r, fillPaint)
+        if (pressed(GbaNative.KEY_RIGHT)) canvas.drawRoundRect(dpadX + half * 0.3f, dpadY - half, dpadX + dpadArm, dpadY + half, r, r, fillPaint)
+
+        strokePaint.color = idleStroke()
+        canvas.drawPath(dpadPath, strokePaint)
+
+        // Centre dimple
+        fillPaint.color = Color.argb(30, 0, 0, 0)
+        canvas.drawCircle(dpadX, dpadY, dpadThick * 0.28f, fillPaint)
+
+        // Direction arrows
+        val s = dpadThick * 0.2f
+        val off = dpadArm - dpadThick * 0.45f
+        drawArrow(canvas, dpadX, dpadY - off, s, 0, pressed(GbaNative.KEY_UP))
+        drawArrow(canvas, dpadX, dpadY + off, s, 2, pressed(GbaNative.KEY_DOWN))
+        drawArrow(canvas, dpadX - off, dpadY, s, 3, pressed(GbaNative.KEY_LEFT))
+        drawArrow(canvas, dpadX + off, dpadY, s, 1, pressed(GbaNative.KEY_RIGHT))
+    }
+
+    /** dir: 0 up, 1 right, 2 down, 3 left */
+    private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, s: Float, dir: Int, active: Boolean) {
+        arrowPaint.color = if (active) Color.WHITE else Color.argb(150, 255, 255, 255)
+        tmpPath.reset()
+        when (dir) {
+            0 -> { tmpPath.moveTo(cx, cy - s); tmpPath.lineTo(cx + s, cy + s * 0.6f); tmpPath.lineTo(cx - s, cy + s * 0.6f) }
+            2 -> { tmpPath.moveTo(cx, cy + s); tmpPath.lineTo(cx + s, cy - s * 0.6f); tmpPath.lineTo(cx - s, cy - s * 0.6f) }
+            3 -> { tmpPath.moveTo(cx - s, cy); tmpPath.lineTo(cx + s * 0.6f, cy - s); tmpPath.lineTo(cx + s * 0.6f, cy + s) }
+            else -> { tmpPath.moveTo(cx + s, cy); tmpPath.lineTo(cx - s * 0.6f, cy - s); tmpPath.lineTo(cx - s * 0.6f, cy + s) }
+        }
+        tmpPath.close()
+        canvas.drawPath(tmpPath, arrowPaint)
+    }
+
+    private fun drawRoundButton(canvas: Canvas, cx: Float, cy: Float, color: Int, label: String, key: Int) {
+        val down = pressed(key)
+        val r = if (down) abRadius * 0.94f else abRadius
+        fillPaint.color = withAlpha(color, if (down) 200 else if (isPortrait) 85 else 60)
+        canvas.drawCircle(cx, cy, r, fillPaint)
+        strokePaint.color = withAlpha(color, if (isPortrait) 220 else 170)
+        canvas.drawCircle(cx, cy, r, strokePaint)
+        labelPaint.alpha = if (down || isPortrait) 255 else 210
+        canvas.drawText(label, cx, cy - (labelPaint.descent() + labelPaint.ascent()) / 2, labelPaint)
+    }
+
+    private fun drawShoulder(canvas: Canvas, rect: RectF, label: String, key: Int) {
+        val down = pressed(key)
+        val r = rect.height() * 0.5f
+        fillPaint.color = if (down) withAlpha(accent, 170) else idleFill()
+        canvas.drawRoundRect(rect, r, r, fillPaint)
+        strokePaint.color = idleStroke()
+        canvas.drawRoundRect(rect, r, r, strokePaint)
+        val old = labelPaint.textSize
+        labelPaint.textSize = rect.height() * 0.5f
+        labelPaint.alpha = 230
+        canvas.drawText(label, rect.centerX(), rect.centerY() - (labelPaint.descent() + labelPaint.ascent()) / 2, labelPaint)
+        labelPaint.textSize = old
+    }
+
+    private fun drawPill(canvas: Canvas, rect: RectF, label: String, key: Int) {
+        val down = pressed(key)
+        val r = rect.height() / 2
+        fillPaint.color = if (down) withAlpha(accent, 170) else idleFill()
+        canvas.drawRoundRect(rect, r, r, fillPaint)
+        strokePaint.color = idleStroke()
+        canvas.drawRoundRect(rect, r, r, strokePaint)
+        captionPaint.color = if (down) Color.WHITE else Color.argb(170, 255, 255, 255)
+        if (isPortrait) {
+            // Caption under the pill, like the real GBA
+            canvas.drawText(label, rect.centerX(), rect.bottom + captionPaint.textSize * 1.35f, captionPaint)
+        } else {
+            canvas.drawText(label, rect.centerX(), rect.centerY() - (captionPaint.descent() + captionPaint.ascent()) / 2, captionPaint)
+        }
+    }
+
+    // ---- Input ----
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         var newKeyMask = 0
+        val action = event.actionMasked
 
-        for (i in 0 until event.pointerCount) {
-            if (event.actionMasked == MotionEvent.ACTION_UP && i == event.actionIndex) continue
-            if (event.actionMasked == MotionEvent.ACTION_POINTER_UP && i == event.actionIndex) continue
-
-            val x = event.getX(i)
-            val y = event.getY(i)
-
-            // D-Pad check
-            val dist = hypot((x - dpadCenterX).toDouble(), (y - dpadCenterY).toDouble()).toFloat()
-            if (dist <= dpadRadius * 1.25f && dist >= dpadRadius * 0.15f) {
-                val angle = Math.toDegrees(atan2((y - dpadCenterY).toDouble(), (x - dpadCenterX).toDouble()))
-                when {
-                    angle in -67.5..-22.5 -> newKeyMask = newKeyMask or GbaNative.KEY_UP or GbaNative.KEY_RIGHT
-                    angle in -22.5..22.5   -> newKeyMask = newKeyMask or GbaNative.KEY_RIGHT
-                    angle in 22.5..67.5   -> newKeyMask = newKeyMask or GbaNative.KEY_DOWN or GbaNative.KEY_RIGHT
-                    angle in 67.5..112.5  -> newKeyMask = newKeyMask or GbaNative.KEY_DOWN
-                    angle in 112.5..157.5 -> newKeyMask = newKeyMask or GbaNative.KEY_DOWN or GbaNative.KEY_LEFT
-                    angle > 157.5 || angle < -157.5 -> newKeyMask = newKeyMask or GbaNative.KEY_LEFT
-                    angle in -157.5..-112.5 -> newKeyMask = newKeyMask or GbaNative.KEY_UP or GbaNative.KEY_LEFT
-                    angle in -112.5..-67.5  -> newKeyMask = newKeyMask or GbaNative.KEY_UP
-                }
+        if (action != MotionEvent.ACTION_CANCEL) {
+            for (i in 0 until event.pointerCount) {
+                if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) && i == event.actionIndex) continue
+                newKeyMask = newKeyMask or keysAt(event.getX(i), event.getY(i))
             }
-
-            // Button A
-            if (hypot((x - btnAX).toDouble(), (y - btnAY).toDouble()) <= actionRadius * 1.3f) {
-                newKeyMask = newKeyMask or GbaNative.KEY_A
-            }
-
-            // Button B
-            if (hypot((x - btnBX).toDouble(), (y - btnBY).toDouble()) <= actionRadius * 1.3f) {
-                newKeyMask = newKeyMask or GbaNative.KEY_B
-            }
-
-            // Shoulders L and R
-            if (rectL.contains(x, y)) newKeyMask = newKeyMask or GbaNative.KEY_L
-            if (rectR.contains(x, y)) newKeyMask = newKeyMask or GbaNative.KEY_R
-
-            // Select & Start
-            if (rectSelect.contains(x, y)) newKeyMask = newKeyMask or GbaNative.KEY_SELECT
-            if (rectStart.contains(x, y)) newKeyMask = newKeyMask or GbaNative.KEY_START
         }
 
         if (newKeyMask != currentKeyMask) {
-            // Trigger haptic feedback when a new button is pressed
-            if ((newKeyMask and currentKeyMask.inv()) != 0) {
-                performHaptic()
-            }
+            if ((newKeyMask and currentKeyMask.inv()) != 0) performHaptic()
             currentKeyMask = newKeyMask
             onKeyMaskChanged?.invoke(currentKeyMask)
             invalidate()
         }
-
         return true
+    }
+
+    private fun keysAt(x: Float, y: Float): Int {
+        var mask = 0
+
+        // D-pad with 8 directions; generous outer radius, small dead zone in the centre
+        val dist = hypot(x - dpadX, y - dpadY)
+        if (dist <= dpadArm * 1.35f && dist >= dpadThick * 0.18f) {
+            val angle = Math.toDegrees(atan2((y - dpadY).toDouble(), (x - dpadX).toDouble()))
+            mask = mask or when {
+                angle >= -22.5 && angle < 22.5 -> GbaNative.KEY_RIGHT
+                angle >= 22.5 && angle < 67.5 -> GbaNative.KEY_DOWN or GbaNative.KEY_RIGHT
+                angle >= 67.5 && angle < 112.5 -> GbaNative.KEY_DOWN
+                angle >= 112.5 && angle < 157.5 -> GbaNative.KEY_DOWN or GbaNative.KEY_LEFT
+                angle >= -67.5 && angle < -22.5 -> GbaNative.KEY_UP or GbaNative.KEY_RIGHT
+                angle >= -112.5 && angle < -67.5 -> GbaNative.KEY_UP
+                angle >= -157.5 && angle < -112.5 -> GbaNative.KEY_UP or GbaNative.KEY_LEFT
+                else -> GbaNative.KEY_LEFT
+            }
+            return mask
+        }
+
+        // A / B, plus pressing both when touching between them
+        val dA = hypot(x - aX, y - aY)
+        val dB = hypot(x - bX, y - bY)
+        val midDist = hypot(x - (aX + bX) / 2, y - (aY + bY) / 2)
+        if (midDist < abRadius * 0.45f) {
+            mask = mask or GbaNative.KEY_A or GbaNative.KEY_B
+        } else {
+            if (dA <= abRadius * 1.25f && dA <= dB) mask = mask or GbaNative.KEY_A
+            else if (dB <= abRadius * 1.25f) mask = mask or GbaNative.KEY_B
+        }
+
+        val slop = u * 0.3f
+        if (expanded(rectL, slop).contains(x, y)) mask = mask or GbaNative.KEY_L
+        if (expanded(rectR, slop).contains(x, y)) mask = mask or GbaNative.KEY_R
+        if (expanded(rectSelect, slop).contains(x, y)) mask = mask or GbaNative.KEY_SELECT
+        if (expanded(rectStart, slop).contains(x, y)) mask = mask or GbaNative.KEY_START
+        return mask
+    }
+
+    private val tmpRect = RectF()
+    private fun expanded(r: RectF, by: Float): RectF {
+        tmpRect.set(r.left - by, r.top - by, r.right + by, r.bottom + by)
+        return tmpRect
     }
 
     private fun performHaptic() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createOneShot(12, VibrationEffect.DEFAULT_AMPLITUDE))
+                vibrator?.vibrate(VibrationEffect.createOneShot(10, 80))
             } else {
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(12)
+                vibrator?.vibrate(10)
             }
         } catch (ignored: Exception) {
         }

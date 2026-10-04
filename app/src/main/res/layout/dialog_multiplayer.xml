@@ -1,103 +1,228 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:background="@color/gba_bezel">
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/multiplayer_title"
-        android:textColor="@color/white"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
-        android:id="@+id/txtStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/status_disconnected"
-        android:textColor="@color/gba_online_green"
-        android:textSize="14sp"
-        android:gravity="center"
-        android:layout_marginBottom="16dp" />
-
-    <!-- Host Room -->
-    <Button
-        android:id="@+id/btnCreateRoom"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_create_room"
-        android:backgroundTint="@color/gba_indigo"
-        android:textColor="@color/white"
-        android:layout_marginBottom="8dp" />
+    android:background="@drawable/bg_menu_panel">
 
     <LinearLayout
-        android:id="@+id/layoutRoomCode"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:visibility="gone"
-        android:layout_marginBottom="16dp">
+        android:orientation="vertical"
+        android:padding="18dp">
 
-        <TextView
-            android:id="@+id/txtRoomCode"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:background="#22FFFFFF"
-            android:padding="8dp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnCopyCode"
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_icon_circle"
+                android:padding="9dp"
+                android:src="@drawable/ic_link"
+                android:contentDescription="@null"
+                app:tint="@color/gba_accent" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:text="Cable Link P2P"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnCloseLink"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                android:contentDescription="Cerrar"
+                app:tint="@color/text_secondary" />
+        </LinearLayout>
+
+        <!-- Status -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_input"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <View
+                android:id="@+id/statusDot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:background="@drawable/bg_icon_circle" />
+
+            <TextView
+                android:id="@+id/txtStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:text="Desconectado"
+                android:textColor="@color/white"
+                android:textSize="13sp" />
+
+            <ProgressBar
+                android:id="@+id/progressLink"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:indeterminateTint="@color/gba_accent"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Host -->
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Copiar"
-            android:layout_marginStart="8dp" />
+            android:layout_marginTop="18dp"
+            android:text="JUGADOR 1 · CREAR SALA"
+            android:letterSpacing="0.08"
+            android:textColor="@color/gba_accent"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCreateRoom"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="6dp"
+            android:text="Crear sala"
+            android:textAllCaps="false"
+            android:textColor="@color/white"
+            app:backgroundTint="@color/gba_indigo"
+            app:cornerRadius="14dp" />
+
+        <LinearLayout
+            android:id="@+id/layoutRoomCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_input"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/txtRoomCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:fontFamily="monospace"
+                android:textColor="@color/white"
+                android:textIsSelectable="true"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCopyCode"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="Copiar"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/menu_tile"
+                app:cornerRadius="10dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnShareCode"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="6dp"
+                android:text="Enviar"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/gba_accent"
+                app:cornerRadius="10dp" />
+        </LinearLayout>
+
+        <!-- Join -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="JUGADOR 2 · UNIRSE"
+            android:letterSpacing="0.08"
+            android:textColor="@color/gba_accent"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editJoinCode"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input"
+                android:fontFamily="monospace"
+                android:hint="Pega el código"
+                android:importantForAutofill="no"
+                android:inputType="textNoSuggestions"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:singleLine="true"
+                android:textColor="@color/white"
+                android:textColorHint="#66FFFFFF"
+                android:textSize="15sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPasteCode"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:layout_marginStart="6dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="Pegar"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/menu_tile"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnJoinRoom"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:text="Unirse a la sala"
+            android:textAllCaps="false"
+            android:textColor="@color/white"
+            app:backgroundTint="@color/gba_accent"
+            app:cornerRadius="14dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDisconnect"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="14dp"
+            android:text="Desconectar"
+            android:textAllCaps="false"
+            android:textColor="@color/danger"
+            android:visibility="gone"
+            app:backgroundTint="@android:color/transparent"
+            app:strokeColor="@color/danger"
+            app:strokeWidth="1dp"
+            app:cornerRadius="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Ambos jugadores deben usar la misma ROM. Funciona mejor en el mismo Wi-Fi; por datos móviles algunas operadoras bloquean la conexión directa."
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
     </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#33FFFFFF"
-        android:layout_marginVertical="12dp" />
-
-    <!-- Join Room -->
-    <EditText
-        android:id="@+id/editJoinCode"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/room_code_hint"
-        android:textColor="@color/white"
-        android:textColorHint="#88FFFFFF"
-        android:background="#15FFFFFF"
-        android:padding="12dp"
-        android:layout_marginBottom="8dp" />
-
-    <Button
-        android:id="@+id/btnJoinRoom"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_join_room"
-        android:backgroundTint="@color/gba_accent"
-        android:textColor="@color/white"
-        android:layout_marginBottom="8dp" />
-
-    <Button
-        android:id="@+id/btnDisconnect"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Desconectar"
-        android:backgroundTint="@color/gba_button_a"
-        android:textColor="@color/white"
-        android:visibility="gone" />
-
-</LinearLayout>
+</ScrollView>

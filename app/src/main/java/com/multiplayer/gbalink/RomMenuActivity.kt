@@ -127,7 +127,11 @@ class RomMenuActivity : AppCompatActivity() {
             val prefs = getSharedPreferences("myboy_prefs", Context.MODE_PRIVATE)
             val path = prefs.getString("last_rom_path", null)
             if (path != null && File(path).exists()) {
-                launchGame(path, prefs.getString("last_rom_name", null) ?: File(path).nameWithoutExtension)
+                launchGame(
+                    path,
+                    prefs.getString("last_rom_name", null) ?: File(path).nameWithoutExtension,
+                    prefs.getString("last_rom_source", null)
+                )
             }
         }
 
@@ -150,7 +154,8 @@ class RomMenuActivity : AppCompatActivity() {
     private fun saveBadge(rom: File): String? {
         val base = rom.nameWithoutExtension
         val dir = rom.parentFile ?: return null
-        val hasSav = listOf("$base.sav", "$base.SAV", "$base.srm").any { File(dir, it).isFile }
+        val myBoyDir = File(Environment.getExternalStorageDirectory(), "MyBoy/save")
+        val hasSav = listOf("$base.sav", "$base.SAV", "$base.srm").any { File(dir, it).isFile || File(myBoyDir, it).isFile }
         val states = File(dir, "states").listFiles { f ->
             f.name.startsWith("$base.ss") && !f.name.endsWith(".png") && !f.name.endsWith(".tmp")
         }?.size ?: 0
@@ -266,7 +271,7 @@ class RomMenuActivity : AppCompatActivity() {
         if (file.extension.equals("zip", ignoreCase = true)) {
             val extracted = extractRomFromZip(file)
             if (extracted != null) {
-                launchGame(extracted.absolutePath, extracted.nameWithoutExtension)
+                launchGame(extracted.absolutePath, file.nameWithoutExtension, sourcePath = file.absolutePath)
             } else {
                 Toast.makeText(this, "No se encontró un archivo .gba dentro del zip", Toast.LENGTH_SHORT).show()
             }
@@ -323,16 +328,22 @@ class RomMenuActivity : AppCompatActivity() {
         }
     }
 
-    private fun launchGame(romPath: String?, romName: String) {
+    /**
+     * @param sourcePath original file the ROM came from (e.g. the .zip) when [romPath] is an
+     * extracted copy: saves are looked up and written next to the original, not the copy.
+     */
+    private fun launchGame(romPath: String?, romName: String, sourcePath: String? = null) {
         if (romPath != null) {
             getSharedPreferences("myboy_prefs", Context.MODE_PRIVATE).edit()
                 .putString("last_rom_path", romPath)
                 .putString("last_rom_name", romName)
+                .putString("last_rom_source", sourcePath)
                 .apply()
         }
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("ROM_PATH", romPath)
             putExtra("ROM_NAME", romName)
+            putExtra("ROM_SOURCE_PATH", sourcePath)
         }
         startActivity(intent)
     }

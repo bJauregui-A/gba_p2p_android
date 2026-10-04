@@ -5,10 +5,21 @@ import android.util.Log
 import com.multiplayer.gbalink.core.GbaEmulator
 import com.multiplayer.gbalink.core.GbaNative
 import kotlinx.coroutines.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.nio.ByteBuffer
+import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class P2PConnectionManager(
@@ -21,7 +32,25 @@ class P2PConnectionManager(
         const val STATE_DISCONNECTED = 0
         const val STATE_CONNECTING = 1
         const val STATE_CONNECTED = 2
+
+        private const val CODE_V4 = 2
+        private const val CODE_V6 = 3
+        // Public relay used only to tell the host the joiner's address (a few bytes, once)
+        private const val SIGNAL_URL = "https://ntfy.sh/"
+        private const val PUNCH_INTERVAL_MS = 250L
+        private const val PUNCH_TIMEOUT_MS = 45_000L
     }
+
+    /** Where a peer can be reached: public address seen by STUN and LAN address (same Wi-Fi). */
+    data class Endpoints(val public: InetSocketAddress, val lan: InetSocketAddress?)
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+    private var jobs = SupervisorJob()
+    private val scope get() = CoroutineScope(Dispatchers.IO + jobs)
+    private val punchTargets = CopyOnWriteArraySet<InetSocketAddress>()
 
     private var socket: DatagramSocket? = null
     private var peerAddress: InetSocketAddress? = null
@@ -40,60 +69,106 @@ class P2PConnectionManager(
         nativeCore.sioListener = this
     }
 
-    /**
-     * Encodes public endpoint into a short shareable Room Code
-     */
-    fun encodeEndpoint(address: InetSocketAddress): String {
-        val ipBytes = address.address.address
-        val port = address.port
-        val buffer = ByteBuffer.allocate(6)
-        buffer.put(ipBytes)
-        buffer.putShort(port.toShort())
-        return Base64.encodeToString(buffer.array(), Base64.NO_WRAP or Base64.URL_SAFE)
-            .trimEnd('=')
+    /** Room code = version + public IP:port + LAN IPv4 (same port), base64url. */
+    fun encodeEndpoints(ep: Endpoints): String {
+        val pub = ep.public.address.address
+        val lan = (ep.lan?.address as? Inet4Address)?.address ?: ByteArray(4)
+        val buffer = ByteBuffer.allocate(1 + pub.size + 2 + 4)
+        buffer.put((if (pub.size == 4) CODE_V4 else CODE_V6).toByte())
+        buffer.put(pub)
+        buffer.putShort(ep.public.port.toShort())
+        buffer.put(lan)
+        return Base64.encodeToString(buffer.array(), Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
     }
 
-    /**
-     * Decodes short Room Code back into an InetSocketAddress
-     */
-    fun decodeEndpoint(roomCode: String): InetSocketAddress? {
-        return try {
-            var padded = roomCode
-            while (padded.length % 4 != 0) padded += "="
-            val bytes = Base64.decode(padded, Base64.NO_WRAP or Base64.URL_SAFE)
-            if (bytes.size != 6) return null
-            val buffer = ByteBuffer.wrap(bytes)
-            val ipBytes = ByteArray(4)
-            buffer.get(ipBytes)
-            val port = buffer.short.toInt() and 0xFFFF
-            val inetAddress = java.net.InetAddress.getByAddress(ipBytes)
-            InetSocketAddress(inetAddress, port)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error decoding room code: $roomCode", e)
-            null
+    fun decodeEndpoints(roomCode: String): Endpoints? = try {
+        val clean = roomCode.trim().replace(" ", "").replace("\n", "")
+        val bytes = Base64.decode(clean, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
+        val bb = ByteBuffer.wrap(bytes)
+        when {
+            // Legacy 6-byte codes (IPv4 + port)
+            bytes.size == 6 -> {
+                val ip = ByteArray(4).also { bb.get(it) }
+                Endpoints(InetSocketAddress(InetAddress.getByAddress(ip), bb.short.toInt() and 0xFFFF), null)
+            }
+            bytes.isNotEmpty() && (bytes[0].toInt() == CODE_V4 || bytes[0].toInt() == CODE_V6) -> {
+                val ipLen = if (bb.get().toInt() == CODE_V4) 4 else 16
+                val ip = ByteArray(ipLen).also { bb.get(it) }
+                val port = bb.short.toInt() and 0xFFFF
+                val lanBytes = ByteArray(4).also { bb.get(it) }
+                val lan = if (lanBytes.all { it == 0.toByte() }) null
+                    else InetSocketAddress(InetAddress.getByAddress(lanBytes), port)
+                Endpoints(InetSocketAddress(InetAddress.getByAddress(ip), port), lan)
+            }
+            else -> null
         }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error decoding room code: $roomCode", e)
+        null
     }
 
+    private fun localIpv4(): InetAddress? = try {
+        NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback }
+            .sortedBy { if (it.name.startsWith("wlan")) 0 else 1 } // prefer Wi-Fi
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun signalTopic(roomCode: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(("gbalink:" + roomCode).toByteArray())
+        return "gbalink_" + digest.take(12).joinToString("") { "%02x".format(it) }
+    }
+
+    /** Opens the UDP socket and learns our endpoints. Returns null (and reports why) on failure. */
+    private suspend fun openSocketAndDiscover(): Endpoints? {
+        val sock = DatagramSocket(null).apply {
+            reuseAddress = true
+            bind(InetSocketAddress(0))
+        }
+        socket = sock
+        updateState(STATE_CONNECTING, "Obteniendo tu dirección pública (STUN)...")
+        val stun = StunClient()
+        val result = stun.discoverPublicEndpoint(sock)
+        val lan = localIpv4()?.let { InetSocketAddress(it, sock.localPort) }
+        if (result == null) {
+            if (lan != null) {
+                // No internet path, but players on the same Wi-Fi can still connect
+                updateState(STATE_CONNECTING, "STUN no disponible (${stun.lastError}). Solo red local.")
+                return Endpoints(lan, lan)
+            }
+            updateState(STATE_DISCONNECTED, "No se pudo obtener tu dirección pública: ${stun.lastError}")
+            return null
+        }
+        if (result.symmetricNat) {
+            Log.w(TAG, "Symmetric NAT detected")
+        }
+        natWarning = if (result.symmetricNat)
+            " · Tu red usa NAT estricto: si no conecta, prueben en el mismo Wi-Fi o con otra red."
+        else ""
+        return Endpoints(result.publicAddress, lan)
+    }
+
+    private var natWarning = ""
+
     /**
-     * Start hosting as Master (Player 1)
+     * Start hosting as Master (Player 1). The returned code goes to the other player; their
+     * address comes back automatically through the signaling relay so both sides punch the NAT.
      */
     suspend fun createRoom(): String? = withContext(Dispatchers.IO) {
         disconnect()
+        jobs = SupervisorJob()
         isMaster = true
         nativeCore.nativeSetLinkRole(GbaNative.ROLE_MASTER)
 
-        socket = DatagramSocket()
-        val stun = StunClient()
-        val stunResult = stun.discoverPublicEndpoint(socket)
-
-        if (stunResult == null) {
-            updateState(STATE_DISCONNECTED, "No se pudo obtener endpoint STUN")
-            return@withContext null
-        }
-
-        val roomCode = encodeEndpoint(stunResult.publicAddress)
-        updateState(STATE_CONNECTING, "Sala creada. Código: $roomCode")
+        val ep = openSocketAndDiscover() ?: return@withContext null
+        val roomCode = encodeEndpoints(ep)
+        updateState(STATE_CONNECTING, "Sala creada. Comparte el código y espera al jugador 2.$natWarning")
         startReceiveLoop()
+        startPunching()
+        listenForJoiners(roomCode)
         roomCode
     }
 
@@ -102,38 +177,109 @@ class P2PConnectionManager(
      */
     suspend fun joinRoom(roomCode: String): Boolean = withContext(Dispatchers.IO) {
         disconnect()
+        jobs = SupervisorJob()
         isMaster = false
         nativeCore.nativeSetLinkRole(GbaNative.ROLE_SLAVE)
 
-        val targetAddress = decodeEndpoint(roomCode)
-        if (targetAddress == null) {
+        val host = decodeEndpoints(roomCode)
+        if (host == null) {
             updateState(STATE_DISCONNECTED, "Código de sala inválido")
             return@withContext false
         }
-        peerAddress = targetAddress
 
-        socket = DatagramSocket()
-        val stun = StunClient()
-        val stunResult = stun.discoverPublicEndpoint(socket)
+        val mine = openSocketAndDiscover() ?: return@withContext false
+        punchTargets.add(host.public)
+        host.lan?.let { punchTargets.add(it) }
 
-        updateState(STATE_CONNECTING, "Conectando P2P a $targetAddress...")
+        updateState(STATE_CONNECTING, "Conectando con el anfitrión...$natWarning")
         startReceiveLoop()
+        startPunching()
+        announceToHost(roomCode, mine)
+        true
+    }
 
-        // UDP Hole Punching burst
-        launch {
-            for (i in 0 until 10) {
-                if (connectionState == STATE_CONNECTED) break
-                sendPacket(LinkCableProtocol.buildHandshakePacket(GbaNative.ROLE_SLAVE, 0))
-                delay(200)
+    /** Joiner: publish our endpoints so the host starts sending packets to us too. */
+    private fun announceToHost(roomCode: String, mine: Endpoints) {
+        scope.launch {
+            val body = encodeEndpoints(mine).toRequestBody("text/plain".toMediaType())
+            repeat(3) { attempt ->
+                try {
+                    http.newCall(Request.Builder().url(SIGNAL_URL + signalTopic(roomCode)).post(body).build())
+                        .execute().use { if (it.isSuccessful) return@launch }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Signal publish failed (attempt $attempt)", e)
+                }
+                delay(1500)
             }
         }
+    }
 
-        true
+    /** Host: poll the relay for joiners' endpoints and add them as punch targets. */
+    private fun listenForJoiners(roomCode: String) {
+        val since = System.currentTimeMillis() / 1000 - 5
+        val seen = HashSet<String>()
+        scope.launch {
+            val deadline = System.currentTimeMillis() + 10 * 60_000L
+            while (isActive && isRunning.get() && connectionState != STATE_CONNECTED && System.currentTimeMillis() < deadline) {
+                try {
+                    val url = SIGNAL_URL + signalTopic(roomCode) + "/json?poll=1&since=" + since
+                    http.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+                        resp.body?.string()?.lineSequence()?.forEach { line ->
+                            if (line.isBlank()) return@forEach
+                            val json = runCatching { JSONObject(line) }.getOrNull() ?: return@forEach
+                            if (json.optString("event") != "message") return@forEach
+                            val id = json.optString("id")
+                            if (!seen.add(id)) return@forEach
+                            val peer = decodeEndpoints(json.optString("message")) ?: return@forEach
+                            Log.i(TAG, "Joiner announced: $peer")
+                            punchTargets.add(peer.public)
+                            peer.lan?.let { punchTargets.add(it) }
+                            updateState(STATE_CONNECTING, "Jugador 2 encontrado, conectando...")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Signal poll failed", e)
+                }
+                delay(1500)
+            }
+        }
+    }
+
+    /** UDP hole punching: both sides fire handshakes at every known address of the other. */
+    private fun startPunching() {
+        scope.launch {
+            val start = System.currentTimeMillis()
+            val role = if (isMaster) GbaNative.ROLE_MASTER else GbaNative.ROLE_SLAVE
+            val packet = LinkCableProtocol.buildHandshakePacket(role, 0)
+            var lastNoticeAt = start
+            while (isActive && isRunning.get() && connectionState != STATE_CONNECTED) {
+                for (target in punchTargets) sendTo(packet, target)
+                delay(PUNCH_INTERVAL_MS)
+                val now = System.currentTimeMillis()
+                // The joiner gives up after a while; the host keeps the room open
+                if (!isMaster && now - start > PUNCH_TIMEOUT_MS) {
+                    updateState(STATE_DISCONNECTED, "No se pudo conectar con el anfitrión.$natWarning")
+                    break
+                }
+                if (!isMaster && now - lastNoticeAt > 10_000) {
+                    lastNoticeAt = now
+                    updateState(STATE_CONNECTING, "Conectando... (${(now - start) / 1000}s)")
+                }
+            }
+        }
+    }
+
+    private fun sendTo(data: ByteArray, target: InetSocketAddress) {
+        try {
+            socket?.send(DatagramPacket(data, data.size, target))
+        } catch (e: Exception) {
+            Log.w(TAG, "send to $target failed: ${e.message}")
+        }
     }
 
     private fun startReceiveLoop() {
         isRunning.set(true)
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             val buffer = ByteArray(512)
             val packet = DatagramPacket(buffer, buffer.size)
 
@@ -142,9 +288,14 @@ class P2PConnectionManager(
                     socket?.receive(packet)
                     val senderAddress = packet.socketAddress as InetSocketAddress
 
-                    if (peerAddress == null) {
+                    // Lock onto whichever address (public or LAN) the peer's handshake arrives from
+                    if (packet.length > 0 && packet.data[0] == LinkCableProtocol.MSG_HANDSHAKE &&
+                        connectionState != STATE_CONNECTED
+                    ) {
                         peerAddress = senderAddress
                         Log.i(TAG, "Peer locked to: $peerAddress")
+                    } else if (senderAddress != peerAddress) {
+                        continue // ignore stray packets (STUN replies, other hosts)
                     }
 
                     handleIncomingPacket(packet.data, packet.length)
@@ -157,7 +308,7 @@ class P2PConnectionManager(
         }
 
         // Keepalive & ping loop
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             while (isRunning.get()) {
                 if (connectionState == STATE_CONNECTED) {
                     sendPacket(LinkCableProtocol.buildPingPacket(System.currentTimeMillis()))
@@ -249,6 +400,8 @@ class P2PConnectionManager(
 
     fun disconnect() {
         isRunning.set(false)
+        jobs.cancel()
+        punchTargets.clear()
         try {
             if (connectionState == STATE_CONNECTED) {
                 sendPacket(byteArrayOf(LinkCableProtocol.MSG_DISCONNECT))
@@ -259,6 +412,7 @@ class P2PConnectionManager(
         socket = null
         peerAddress = null
         nativeCore.nativeSetLinkRole(GbaNative.ROLE_STANDALONE)
-        updateState(STATE_DISCONNECTED, "Desconectado")
+        if (connectionState != STATE_DISCONNECTED) updateState(STATE_DISCONNECTED, "Desconectado")
+        connectionState = STATE_DISCONNECTED
     }
 }

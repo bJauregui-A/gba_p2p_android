@@ -58,6 +58,8 @@ class MainActivity : AppCompatActivity() {
 
     private var currentRomName: String = "Juego"
     private var romFile: File? = null
+    private var sourceFile: File? = null   // file the user picked (the .zip for zipped ROMs)
+    private var backupDone = false
     private lateinit var saveStates: SaveStateManager
 
     // Cartridge battery save (.sav) currently in use and hash of its last written content
@@ -152,7 +154,9 @@ class MainActivity : AppCompatActivity() {
         if (!romPath.isNullOrEmpty() && File(romPath).exists()) {
             romFile = File(romPath)
         }
-        saveStates = SaveStateManager(this, romFile, currentRomName)
+        // For zipped ROMs the playable file is an extracted copy; saves belong next to the .zip
+        sourceFile = intent.getStringExtra("ROM_SOURCE_PATH")?.let { File(it) }?.takeIf { it.exists() } ?: romFile
+        saveStates = SaveStateManager(this, sourceFile, currentRomName)
 
         if (romFile != null) {
             loadRomFromFile(romFile!!)
@@ -257,12 +261,19 @@ class MainActivity : AppCompatActivity() {
      * raw chip dump (same format as MyBoy / mGBA / VBA-M), so it can be moved between emulators.
      */
     private fun autoSaveBattery(force: Boolean = false): Boolean {
-        val rf = romFile ?: return false
+        val rf = sourceFile ?: romFile ?: return false
         return try {
             val savBytes = emulator.getSaveData() ?: return false
+            // Never replace a real save with an empty chip (all 0xFF / 0x00)
+            if (isBlankSave(savBytes)) return false
             val hash = savBytes.contentHashCode()
             if (!force && hash == lastBatteryHash) return true
             val savFile = batterySaveFile ?: File(rf.parentFile, "${rf.nameWithoutExtension}.sav").also { batterySaveFile = it }
+            // One backup per session of whatever was there before we first overwrite it
+            if (!backupDone && savFile.exists() && savFile.length() > 0) {
+                savFile.copyTo(File(savFile.path + ".bak"), overwrite = true)
+                backupDone = true
+            }
             savFile.writeBytes(savBytes)
             lastBatteryHash = hash
             Log.i("MainActivity", "Battery save written (${savBytes.size} bytes) to ${savFile.absolutePath}")
@@ -273,24 +284,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Looks for an existing battery save written by this app, MyBoy, RetroArch (.srm), etc. */
+    private fun isBlankSave(data: ByteArray): Boolean {
+        val first = data.firstOrNull() ?: return true
+        if (first != 0xFF.toByte() && first != 0.toByte()) return false
+        return data.all { it == first }
+    }
+
+    /**
+     * Looks for the battery save of [rom] written by this app, MyBoy (/MyBoy/save), RetroArch
+     * (.srm), etc. Empty saves are ignored and, among the real ones, the most recent wins.
+     */
     private fun findBatterySave(rom: File): File? {
-        val dir = rom.parentFile ?: return null
         val base = rom.nameWithoutExtension
-        val folders = listOf(dir, File(dir, "save"), File(dir, "saves"), File(dir, "Save"), File(dir, "Saves"))
-        val names = listOf("$base.sav", "$base.SAV", "$base.srm", "$base.SRM", "${rom.name}.sav")
-        for (folder in folders) {
-            for (name in names) {
-                val f = File(folder, name)
-                if (f.isFile && f.length() >= 512) return f
-            }
+        val dir = rom.parentFile
+        val storage = android.os.Environment.getExternalStorageDirectory()
+        val folders = listOfNotNull(
+            dir,
+            dir?.let { File(it, "save") },
+            dir?.let { File(it, "saves") },
+            File(storage, "MyBoy/save"),
+            File(storage, "MyBoy/saves"),
+            File(storage, "MyBoy"),
+            File(storage, "RetroArch/saves"),
+            File(storage, "Download/MyBoy/save")
+        ).distinct()
+        val extensions = setOf("sav", "srm")
+
+        val candidates = folders.flatMap { folder ->
+            folder.listFiles()?.filter {
+                it.isFile && it.length() >= 512 &&
+                    it.extension.lowercase() in extensions &&
+                    (it.nameWithoutExtension.equals(base, ignoreCase = true) ||
+                        it.nameWithoutExtension.equals(rom.name, ignoreCase = true))
+            } ?: emptyList()
         }
-        // Case-insensitive fallback in the ROM folder
-        return dir.listFiles()?.firstOrNull {
-            it.isFile && it.length() >= 512 &&
-                it.nameWithoutExtension.equals(base, ignoreCase = true) &&
-                (it.extension.equals("sav", true) || it.extension.equals("srm", true))
-        }
+        Log.i("MainActivity", "Battery save candidates for '$base': ${candidates.map { "${it.path} (${it.length()} B)" }}")
+
+        return candidates
+            .filter { f -> runCatching { !isBlankSave(f.readBytes()) }.getOrDefault(false) }
+            .maxByOrNull { it.lastModified() }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -523,7 +555,7 @@ class MainActivity : AppCompatActivity() {
 
         b.menuTitle.text = currentRomName
         b.menuSubtitle.text = buildString {
-            append(if (hasBattery) "Partida: $savName" else "Sin partida guardada aún")
+            append(if (hasBattery) "Partida: ${batterySaveFile?.parentFile?.name}/$savName" else "Sin partida guardada aún")
             append(" · ${if (speed > 1f) "${speed.toInt()}x" else "1x"}")
         }
 
@@ -620,19 +652,22 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Auto-load the cartridge battery save (.sav from this app, MyBoy, mGBA, VBA-M...)
-            val savFile = findBatterySave(file)
-            batterySaveFile = savFile ?: File(file.parentFile, "${file.nameWithoutExtension}.sav")
+            val base = sourceFile ?: file
+            val savFile = findBatterySave(base)
+            batterySaveFile = savFile ?: File(base.parentFile, "${base.nameWithoutExtension}.sav")
             if (savFile != null) {
                 try {
                     val savBytes = savFile.readBytes()
                     emulator.loadSaveData(savBytes)
                     nativeCore.nativeReset() // boot with the save present, like inserting the cartridge
                     lastBatteryHash = emulator.getSaveData()?.contentHashCode() ?: 0
-                    Toast.makeText(this, "Partida cargada: ${savFile.name} (${savBytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Partida cargada: ${savFile.parentFile?.name}/${savFile.name} (${savBytes.size / 1024} KB)", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Error loading battery save", e)
                     Toast.makeText(this, "No se pudo leer ${savFile.name}: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+            } else {
+                Toast.makeText(this, "No se encontró partida (.sav) para ${base.nameWithoutExtension}", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             Toast.makeText(this, "Error al cargar ROM: ${e.message}", Toast.LENGTH_SHORT).show()
