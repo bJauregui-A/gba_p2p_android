@@ -474,6 +474,25 @@ class ShowdownActivity : AppCompatActivity() {
 
     private var forceSwitchDialog: AlertDialog? = null
 
+    /**
+     * Loads the animated sprite and, if it doesn't exist, the static fallback. (Coil's error()
+     * only takes drawables; a String there resolves to Kotlin's error() and crashes the app.)
+     */
+    private fun loadSpriteWithFallback(view: ImageView, url: String, fallbackUrl: String) {
+        if (view.tag == url) return // same Pokémon still on screen: don't restart the GIF
+        view.tag = url
+        view.load(url, gifImageLoader) {
+            placeholder(R.drawable.ic_pokeball)
+            listener(onError = { _, _ ->
+                if (view.tag == url) {
+                    view.load(fallbackUrl, gifImageLoader) {
+                        error(R.drawable.ic_pokeball)
+                    }
+                }
+            })
+        }
+    }
+
     private fun updateBattleUI(battle: BattleState) {
         // 1. Opponent Status & Front Sprite
         val opp = battle.opponentActive
@@ -483,10 +502,7 @@ class ShowdownActivity : AppCompatActivity() {
             binding.txtOpponentHp.text = "${opp.hpPercentage}% ${opp.status}"
             updateHpColor(binding.progressOpponentHp, opp.hpPercentage)
             binding.imgOpponentSprite.alpha = if (opp.isFainted || opp.hp == 0) 0.3f else 1.0f
-            binding.imgOpponentSprite.load(ShowdownDex.getFrontSpriteUrl(opp.species), gifImageLoader) {
-                placeholder(R.drawable.ic_pokeball)
-                error(ShowdownDex.getFallbackSpriteUrl(opp.species))
-            }
+            loadSpriteWithFallback(binding.imgOpponentSprite, ShowdownDex.getFrontSpriteUrl(opp.species), ShowdownDex.getFallbackSpriteUrl(opp.species))
         }
 
         // 2. Player Status & Back Sprite
@@ -497,10 +513,7 @@ class ShowdownActivity : AppCompatActivity() {
             binding.txtMyHp.text = "${me.hp}/${me.maxHp} ${me.status}"
             updateHpColor(binding.progressMyHp, me.hpPercentage)
             binding.imgMySprite.alpha = if (me.isFainted || me.hp == 0) 0.3f else 1.0f
-            binding.imgMySprite.load(ShowdownDex.getBackSpriteUrl(me.species), gifImageLoader) {
-                placeholder(R.drawable.ic_pokeball)
-                error(ShowdownDex.getFallbackSpriteUrl(me.species))
-            }
+            loadSpriteWithFallback(binding.imgMySprite, ShowdownDex.getBackSpriteUrl(me.species), ShowdownDex.getFallbackSpriteUrl(me.species))
         }
 
         // 3. Render Teams (Opponent Top Bar & Player Bottom Bar)

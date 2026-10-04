@@ -71,12 +71,14 @@ class RomMenuActivity : AppCompatActivity() {
         if (savedPath != null && File(savedPath).exists()) {
             currentDirectory = File(savedPath)
         } else {
-            val downloadDir = File(Environment.getExternalStorageDirectory(), "Download")
+            val root = storageRoots().firstOrNull { hasRoms(File(it, "Download")) || hasRoms(File(it, "Download/downloaded_rom")) }
+                ?: storageRoots().first()
+            val downloadDir = File(root, "Download")
             val romSubDir = File(downloadDir, "downloaded_rom")
             currentDirectory = when {
                 romSubDir.exists() -> romSubDir
                 downloadDir.exists() -> downloadDir
-                else -> filesDir
+                else -> root
             }
         }
 
@@ -95,28 +97,21 @@ class RomMenuActivity : AppCompatActivity() {
         }
 
         binding.btnSelectFolder.setOnClickListener {
-            val options = arrayOf(
-                "Elegir archivo ROM (.gba, .zip)",
-                "Ir a /Download/downloaded_rom",
-                "Ir a /Download",
-                "Elegir carpeta con SAF"
-            )
-            android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Explorador de ROMs")
-                .setItems(options) { _, which ->
-                    when (which) {
-                        0 -> filePickerLauncher.launch("*/*")
-                        1 -> {
-                            val target = File(Environment.getExternalStorageDirectory(), "Download/downloaded_rom")
-                            if (target.exists()) navigateTo(target)
-                        }
-                        2 -> {
-                            val target = File(Environment.getExternalStorageDirectory(), "Download")
-                            if (target.exists()) navigateTo(target)
-                        }
-                        3 -> folderPickerLauncher.launch(null)
+            val labels = mutableListOf("Elegir archivo ROM (.gba, .zip)...")
+            val actions = mutableListOf<() -> Unit>({ filePickerLauncher.launch("*/*") })
+            for (root in storageRoots()) {
+                val name = storageLabel(root)
+                listOf("Download/downloaded_rom", "Download", "").forEach { sub ->
+                    val dir = if (sub.isEmpty()) root else File(root, sub)
+                    if (dir.isDirectory && dir.canRead()) {
+                        labels.add(if (sub.isEmpty()) "$name (raíz)" else "$name /$sub")
+                        actions.add { navigateTo(dir) }
                     }
                 }
+            }
+            android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Explorador de ROMs")
+                .setItems(labels.toTypedArray()) { _, which -> actions[which]() }
                 .show()
         }
 
@@ -148,6 +143,34 @@ class RomMenuActivity : AppCompatActivity() {
 
         refreshDirectory()
     }
+
+    /**
+     * Storages this process can read. A cloned/dual app (MIUI "Dual apps", Samsung "Dual
+     * Messenger"...) runs as another Android user (/storage/emulated/999) whose storage is empty;
+     * when the main user's storage (/storage/emulated/0) is readable it is offered too.
+     */
+    private fun storageRoots(): List<File> {
+        val roots = linkedSetOf<File>()
+        roots.add(Environment.getExternalStorageDirectory())
+        roots.add(File("/storage/emulated/0"))
+        // SD cards: strip ".../Android/data/<pkg>/files" from app-specific dirs
+        getExternalFilesDirs(null).filterNotNull().forEach { f ->
+            f.absolutePath.substringBefore("/Android/").takeIf { it.isNotEmpty() }?.let { roots.add(File(it)) }
+        }
+        return roots.filter { it.isDirectory && it.canRead() && it.listFiles() != null }
+            .ifEmpty { listOf(filesDir) }
+    }
+
+    private fun storageLabel(root: File): String = when {
+        root.absolutePath == "/storage/emulated/0" -> "Almacenamiento principal"
+        root.absolutePath.startsWith("/storage/emulated/") -> "Almacenamiento (usuario ${root.name})"
+        root == filesDir -> "Memoria de la app"
+        else -> "Tarjeta SD (${root.name})"
+    }
+
+    private fun hasRoms(dir: File): Boolean = dir.listFiles()?.any {
+        it.isFile && it.extension.lowercase() in setOf("gba", "zip", "agb", "bin")
+    } == true
 
     /** Shows the "Continuar" card for the last played ROM, if it still exists. */
     private fun refreshContinueCard() {
@@ -231,8 +254,6 @@ class RomMenuActivity : AppCompatActivity() {
         refreshContinueCard()
         items.clear()
 
-        // 1. Built-in Demo ROM always at top
-        items.add(ExplorerItem("ROM Demo (Homebrew)", "", isDirectory = false, isDemoRom = true, sizeString = "ROM de prueba integrada"))
 
         // 2. Parent directory if not at root
         val parent = currentDirectory.parentFile
@@ -271,8 +292,13 @@ class RomMenuActivity : AppCompatActivity() {
             items.addAll(romList)
         }
 
-        val hasRoms = items.any { !it.isDirectory && !it.isDemoRom }
-        binding.txtEmpty.visibility = if (hasRoms) View.GONE else View.VISIBLE
+        val anyRoms = items.any { !it.isDirectory && !it.isDemoRom }
+        binding.txtEmpty.visibility = if (anyRoms) View.GONE else View.VISIBLE
+        binding.txtEmpty.text = if (currentDirectory.absolutePath.matches(Regex("/storage/emulated/[1-9]\\d*.*")))
+            "No hay ROMs aquí.\nEsta es una app duplicada (modo dual): tiene su propio almacenamiento, separado del principal. " +
+                "Toca el icono de carpeta → \"Elegir archivo ROM\" para abrir una ROM, o copia las ROMs a esta carpeta."
+        else
+            "No hay ROMs en esta carpeta.\nToca el icono de carpeta para buscar otra."
 
         adapter.notifyDataSetChanged()
     }
