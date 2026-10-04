@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.multiplayer.gbalink.databinding.ActivityRomMenuBinding
 import com.multiplayer.gbalink.showdown.ShowdownActivity
+import com.multiplayer.gbalink.showdown.ShowdownWebActivity
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
@@ -120,7 +121,17 @@ class RomMenuActivity : AppCompatActivity() {
         }
 
         binding.btnMenuShowdown.setOnClickListener {
-            startActivity(Intent(this, ShowdownActivity::class.java))
+            val options = arrayOf(
+                "Showdown completo (igual que la web)\nLadder, teambuilder, retos, salas de chat, torneos, replays",
+                "Modo rápido (nativo)\nBatallas con la interfaz de la app"
+            )
+            android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Pokémon Showdown")
+                .setItems(options) { _, which ->
+                    val target = if (which == 0) ShowdownWebActivity::class.java else ShowdownActivity::class.java
+                    startActivity(Intent(this, target))
+                }
+                .show()
         }
 
         binding.cardContinue.setOnClickListener {

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF1B1E2B">
+
+    <WebView
+        android:id="@+id/webShowdown"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progressWeb"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="false"
+        app:indicatorColor="@color/gba_accent"
+        app:trackThickness="3dp" />
+
+    <!-- Shown when the site can't be reached -->
+    <LinearLayout
+        android:id="@+id/layoutWebError"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/gba_bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:src="@drawable/ic_pokeball"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:id="@+id/txtWebError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="No se pudo conectar con Pokémon Showdown"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnWebRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:text="Reintentar"
+            android:textAllCaps="false"
+            app:backgroundTint="@color/gba_accent"
+            app:cornerRadius="14dp" />
+    </LinearLayout>
+</FrameLayout>

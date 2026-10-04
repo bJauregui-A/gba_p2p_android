@@ -52,6 +52,8 @@ class ShowdownClient {
     var onBattleUpdated: ((BattleState) -> Unit)? = null
     var onBattleEnded: ((String) -> Unit)? = null
     var onChallengeReceived: ((Challenge) -> Unit)? = null
+    var onChallengeCancelled: ((String) -> Unit)? = null
+    var onPrivateMessage: ((ChatMessage) -> Unit)? = null
     var onStatusMessage: ((String) -> Unit)? = null
     var onBattleVisualEvent: ((BattleVisualEvent) -> Unit)? = null
     var onLobbyChatMessage: ((ChatMessage) -> Unit)? = null
@@ -291,6 +293,16 @@ class ShowdownClient {
         sendRaw("|/accept $fromUser")
     }
 
+    private fun toId(name: String) = name.lowercase().replace(Regex("[^a-z0-9]"), "")
+
+    /** Strips the rank symbol (" ", "+", "%"...) and the "@!" away/busy suffix from a user name. */
+    private fun cleanName(raw: String) = raw.trim().trimStart('+', '%', '@', '*', '#', '&', '~', '^', '☆')
+        .substringBefore("@!")
+
+    fun sendPrivateMessage(toUser: String, text: String) {
+        sendRaw("|/pm $toUser, $text")
+    }
+
     fun rejectChallenge(fromUser: String) {
         sendRaw("|/reject $fromUser")
     }
@@ -434,6 +446,28 @@ class ShowdownClient {
                     if (isLogged) {
                         CoroutineScope(Dispatchers.Main).launch {
                             onLoginSuccess?.invoke(name)
+                        }
+                    }
+                }
+
+                "pm" -> {
+                    // |pm|SENDER|RECEIVER|MESSAGE  (challenges arrive here as "/challenge FORMAT|...")
+                    val sender = cleanName(parts.getOrNull(2) ?: "")
+                    val message = parts.drop(4).joinToString("|")
+                    val fromMe = toId(sender) == toId(currentUser.name)
+                    when {
+                        message.startsWith("/challenge") -> {
+                            val format = message.removePrefix("/challenge").trim().substringBefore("|").trim()
+                            if (!fromMe) {
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    if (format.isNotEmpty()) onChallengeReceived?.invoke(Challenge(sender, format))
+                                    else onChallengeCancelled?.invoke(sender)
+                                }
+                            }
+                        }
+                        message.startsWith("/") -> Unit // other PM commands (/raw, /log...)
+                        !fromMe -> CoroutineScope(Dispatchers.Main).launch {
+                            onPrivateMessage?.invoke(ChatMessage(sender, message))
                         }
                     }
                 }

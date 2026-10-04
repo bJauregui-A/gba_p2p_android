@@ -341,23 +341,18 @@ class ShowdownActivity : AppCompatActivity() {
             Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
         }
 
-        showdownClient.onChallengeReceived = { challenge ->
-            binding.layoutIncomingChallenge.visibility = View.VISIBLE
-            binding.txtChallengeFrom.text = "¡Reto de ${challenge.fromUser} (${challenge.format})!"
+        showdownClient.onChallengeReceived = { challenge -> showIncomingChallenge(challenge) }
 
-            binding.btnAcceptChallenge.setOnClickListener {
-                val teamPos = binding.spinnerTeamSelect.selectedItemPosition
-                val packedTeam = if (teamPos > 0 && teamPos - 1 < ShowdownTeamManager.userTeams.size) {
-                    ShowdownTeamManager.packTeam(ShowdownTeamManager.userTeams[teamPos - 1])
-                } else null
-                showdownClient.acceptChallenge(challenge.fromUser, packedTeam)
+        showdownClient.onChallengeCancelled = { fromUser ->
+            if (pendingChallenge?.fromUser.equals(fromUser, ignoreCase = true)) {
+                challengeDialog?.dismiss()
                 binding.layoutIncomingChallenge.visibility = View.GONE
+                Toast.makeText(this, "$fromUser canceló el reto", Toast.LENGTH_SHORT).show()
             }
+        }
 
-            binding.btnRejectChallenge.setOnClickListener {
-                showdownClient.rejectChallenge(challenge.fromUser)
-                binding.layoutIncomingChallenge.visibility = View.GONE
-            }
+        showdownClient.onPrivateMessage = { msg ->
+            Toast.makeText(this, "${msg.sender}: ${msg.text}", Toast.LENGTH_LONG).show()
         }
 
         showdownClient.onBattleStarted = { battle ->
@@ -878,6 +873,83 @@ class ShowdownActivity : AppCompatActivity() {
             .show()
     }
 
+
+    private var pendingChallenge: Challenge? = null
+    private var challengeDialog: AlertDialog? = null
+
+    private fun formatName(id: String) = formats.firstOrNull { it.first == id }?.second ?: id
+
+    /** Banner + popup with the challenger, format and team choice: one tap to join the battle. */
+    private fun showIncomingChallenge(challenge: Challenge) {
+        pendingChallenge = challenge
+        vibrateShort()
+
+        binding.layoutIncomingChallenge.visibility = View.VISIBLE
+        binding.txtChallengeFrom.text = "¡Reto de ${challenge.fromUser} (${formatName(challenge.format)})!"
+        binding.btnAcceptChallenge.setOnClickListener { acceptPendingChallenge(selectedTeamFromSpinner()) }
+        binding.btnRejectChallenge.setOnClickListener { rejectPendingChallenge() }
+
+        val needsTeam = !challenge.format.contains("random", ignoreCase = true)
+        val teams = ShowdownTeamManager.userTeams
+        challengeDialog?.dismiss()
+        val builder = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("⚔  ${challenge.fromUser} te reta")
+            .setNegativeButton("Rechazar") { _, _ -> rejectPendingChallenge() }
+            .setCancelable(false)
+
+        if (needsTeam && teams.isNotEmpty()) {
+            var selected = (binding.spinnerTeamSelect.selectedItemPosition - 1).coerceIn(0, teams.size - 1)
+            val names = teams.map { it.name }.toTypedArray()
+            builder.setSingleChoiceItems(names, selected) { _, which -> selected = which }
+                .setPositiveButton("Aceptar con este equipo") { _, _ ->
+                    acceptPendingChallenge(ShowdownTeamManager.packTeam(teams[selected]))
+                }
+            builder.setMessage(null)
+            builder.setTitle("⚔  ${challenge.fromUser} te reta · ${formatName(challenge.format)}")
+        } else {
+            builder.setMessage(
+                "Formato: ${formatName(challenge.format)}" +
+                    if (needsTeam) "\n\nEste formato necesita un equipo y no tienes ninguno guardado." else ""
+            )
+            builder.setPositiveButton("Aceptar y jugar") { _, _ -> acceptPendingChallenge(null) }
+        }
+        challengeDialog = builder.show()
+    }
+
+    private fun selectedTeamFromSpinner(): String? {
+        val teamPos = binding.spinnerTeamSelect.selectedItemPosition
+        return if (teamPos > 0 && teamPos - 1 < ShowdownTeamManager.userTeams.size) {
+            ShowdownTeamManager.packTeam(ShowdownTeamManager.userTeams[teamPos - 1])
+        } else null
+    }
+
+    private fun acceptPendingChallenge(packedTeam: String?) {
+        val c = pendingChallenge ?: return
+        showdownClient.acceptChallenge(c.fromUser, packedTeam)
+        binding.layoutIncomingChallenge.visibility = View.GONE
+        binding.txtLobbyStatus.text = "Uniéndote a la batalla contra ${c.fromUser}..."
+        pendingChallenge = null
+    }
+
+    private fun rejectPendingChallenge() {
+        val c = pendingChallenge ?: return
+        showdownClient.rejectChallenge(c.fromUser)
+        binding.layoutIncomingChallenge.visibility = View.GONE
+        pendingChallenge = null
+    }
+
+    private fun vibrateShort() {
+        try {
+            val v = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+            if (SDK_INT >= 26) {
+                v.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 120, 80, 120), -1))
+            } else {
+                @Suppress("DEPRECATION")
+                v.vibrate(200)
+            }
+        } catch (_: Exception) {
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
