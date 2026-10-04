@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="@color/gba_bezel"
+    android:gravity="center_horizontal">
+
+    <!-- Animated Pokemon Sprite -->
+    <ImageView
+        android:id="@+id/imgTooltipSprite"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:scaleType="fitCenter"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/txtTooltipPokeName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Charizard"
+        android:textColor="@color/white"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/txtTooltipPokeSpecies"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Especie: Charizard"
+        android:textColor="#AAFFFFFF"
+        android:textSize="13sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/txtTooltipPokeHp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Salud: 297/297 (100%)"
+        android:textColor="@color/gba_online_green"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/txtTooltipPokeStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Estado: Normal"
+        android:textColor="@color/white"
+        android:textSize="13sp" />
+
+</LinearLayout>

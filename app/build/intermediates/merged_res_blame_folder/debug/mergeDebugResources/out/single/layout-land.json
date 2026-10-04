@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.multiplayer.gbalink.app-mergeDebugResources-32:/layout-land/activity_main.xml",
+        "source": "com.multiplayer.gbalink.app-main-35:/layout-land/activity_main.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout-land/activity_main.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout-land/activity_main.xml"
+    }
+]

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/gba_bg"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Importar Equipo (Pokepaste / Texto Showdown)"
+        android:textColor="@color/white"
+        android:textStyle="bold"
+        android:textSize="15sp"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/editImportTeamName"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:hint="Nombre del Equipo (ej. Mi Equipo OU)"
+        android:textColor="@color/white"
+        android:textColorHint="#88FFFFFF"
+        android:background="#22FFFFFF"
+        android:paddingHorizontal="10dp"
+        android:textSize="12sp"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/editImportTeamText"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:hint="Pega aquí el texto exportado de Showdown o Pokepaste..."
+        android:textColor="@color/white"
+        android:textColorHint="#88FFFFFF"
+        android:background="#22FFFFFF"
+        android:gravity="top|start"
+        android:padding="10dp"
+        android:textSize="11sp"
+        android:scrollbars="vertical" />
+
+</LinearLayout>

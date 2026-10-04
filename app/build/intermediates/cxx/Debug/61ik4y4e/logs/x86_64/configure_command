@@ -1,0 +1,19 @@
+/home/ben4shot/Android/Sdk/cmake/3.22.1/bin/cmake \
+  -H/home/ben4shot/Develop/Multiplayer/app/src/main/cpp \
+  -DCMAKE_SYSTEM_NAME=Android \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DCMAKE_SYSTEM_VERSION=26 \
+  -DANDROID_PLATFORM=android-26 \
+  -DANDROID_ABI=x86_64 \
+  -DCMAKE_ANDROID_ARCH_ABI=x86_64 \
+  -DANDROID_NDK=/home/ben4shot/Android/Sdk/ndk/28.2.13676358 \
+  -DCMAKE_ANDROID_NDK=/home/ben4shot/Android/Sdk/ndk/28.2.13676358 \
+  -DCMAKE_TOOLCHAIN_FILE=/home/ben4shot/Android/Sdk/ndk/28.2.13676358/build/cmake/android.toolchain.cmake \
+  -DCMAKE_MAKE_PROGRAM=/home/ben4shot/Android/Sdk/cmake/3.22.1/bin/ninja \
+  "-DCMAKE_CXX_FLAGS=-std=c++17 -O3 -fexceptions" \
+  -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/ben4shot/Develop/Multiplayer/app/build/intermediates/cxx/Debug/61ik4y4e/obj/x86_64 \
+  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/ben4shot/Develop/Multiplayer/app/build/intermediates/cxx/Debug/61ik4y4e/obj/x86_64 \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -B/home/ben4shot/Develop/Multiplayer/app/.cxx/Debug/61ik4y4e/x86_64 \
+  -GNinja \
+  -DANDROID_STL=c++_shared

@@ -1,0 +1,4 @@
+/home/ben4shot/Android/Sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /home/ben4shot/Develop/Multiplayer/app/.cxx/Debug/61ik4y4e/armeabi-v7a \
+  gbalink_core

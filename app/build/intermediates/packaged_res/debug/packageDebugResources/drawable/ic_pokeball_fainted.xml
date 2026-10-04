@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Top half (Dark Grey) -->
+    <path
+        android:fillColor="#57606F"
+        android:pathData="M 12,2 A 10,10 0 0,0 2,12 L 8,12 A 4,4 0 0,1 12,8 A 4,4 0 0,1 16,12 L 22,12 A 10,10 0 0,0 12,2 Z" />
+
+    <!-- Bottom half (Darker Grey) -->
+    <path
+        android:fillColor="#2F3542"
+        android:pathData="M 2,12 A 10,10 0 0,0 12,22 A 10,10 0 0,0 22,12 L 16,12 A 4,4 0 0,1 12,16 A 4,4 0 0,1 8,12 L 2,12 Z" />
+
+    <!-- Outer border -->
+    <path
+        android:strokeColor="#1E272E"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:pathData="M 12,2 A 10,10 0 1,0 12,22 A 10,10 0 1,0 12,2 Z" />
+
+    <!-- Center outer ring -->
+    <path
+        android:fillColor="#1E272E"
+        android:pathData="M 12,8 A 4,4 0 1,0 12,16 A 4,4 0 1,0 12,8 Z" />
+
+    <!-- Center inner button -->
+    <path
+        android:fillColor="#747D8C"
+        android:pathData="M 12,9.8 A 2.2,2.2 0 1,0 12,14.2 A 2.2,2.2 0 1,0 12,9.8 Z" />
+
+    <!-- Red Faint Cross X -->
+    <path
+        android:strokeColor="#FF4757"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M 5,5 L 19,19 M 19,5 L 5,19" />
+</vector>

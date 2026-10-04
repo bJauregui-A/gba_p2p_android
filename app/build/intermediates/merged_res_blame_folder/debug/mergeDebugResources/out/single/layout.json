@@ -1,0 +1,62 @@
+[
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_public_room.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_public_room.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/activity_rom_menu.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/activity_rom_menu.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_chat_message.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_chat_message.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/activity_main.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/activity_main.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/dialog_import_team.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/dialog_import_team.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_explorer.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_explorer.xml"
+    },
+    {
+        "merged": "com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/activity_main.xml",
+        "source": "com.multiplayer.gbalink.app-main-35:/layout/activity_main.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_rom.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_rom.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/dialog_multiplayer.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/dialog_multiplayer.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/activity_showdown.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/activity_showdown.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/dialog_tooltip_move.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/dialog_tooltip_move.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_team.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_team.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/dialog_battle_chat.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/dialog_battle_chat.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/item_team_slot.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/item_team_slot.xml"
+    },
+    {
+        "merged": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-mergeDebugResources-32:/layout/dialog_tooltip_pokemon.xml",
+        "source": "/home/ben4shot/.gradle/daemon/8.9/com.multiplayer.gbalink.app-main-35:/layout/dialog_tooltip_pokemon.xml"
+    }
+]

@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">GBA Link P2P</string>
+    <string name="btn_create_room">Crear Sala (Host / Master)</string>
+    <string name="btn_join_room">Unirse a Sala (Cliente / Slave)</string>
+    <string name="room_code_hint">Código de Sala (ej. GBA-1234)</string>
+    <string name="load_rom">Cargar ROM (.gba)</string>
+    <string name="export_save">Exportar Partida (.sav)</string>
+    <string name="import_save">Importar Partida (.sav)</string>
+    <string name="multiplayer_title">Multijugador Cable Link P2P</string>
+    <string name="status_disconnected">Cable Link: Desconectado</string>
+    <string name="status_master">Cable Link: Conectado (Master - J1)</string>
+    <string name="status_slave">Cable Link: Conectado (Slave - J2)</string>
+    <string name="status_connecting">Conectando P2P vía STUN...</string>
+</resources>

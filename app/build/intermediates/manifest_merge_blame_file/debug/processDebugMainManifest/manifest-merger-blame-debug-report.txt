@@ -1,0 +1,185 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.multiplayer.gbalink"
+4    android:versionCode="1"
+5    android:versionName="1.0.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="26"
+9        android:targetSdkVersion="35" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:4:5-67
+11-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:4:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:5:5-79
+12-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:5:22-76
+13    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+13-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:6:5-76
+13-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:6:22-73
+14    <uses-permission android:name="android.permission.VIBRATE" />
+14-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:7:5-66
+14-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:7:22-63
+15    <uses-permission
+15-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:8:5-107
+16        android:name="android.permission.READ_EXTERNAL_STORAGE"
+16-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:8:22-77
+17        android:maxSdkVersion="32" />
+17-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:8:78-104
+18    <uses-permission
+18-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:9:5-108
+19        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+19-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:9:22-78
+20        android:maxSdkVersion="29" />
+20-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:9:79-105
+21    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+21-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:10:5-82
+21-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:10:22-79
+22
+23    <permission
+23-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:22:5-24:47
+24        android:name="com.multiplayer.gbalink.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+24-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:23:9-81
+25        android:protectionLevel="signature" />
+25-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:24:9-44
+26
+27    <uses-permission android:name="com.multiplayer.gbalink.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+27-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:26:5-97
+27-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:26:22-94
+28
+29    <application
+29-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:12:5-47:19
+30        android:allowBackup="true"
+30-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:13:9-35
+31        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+31-->[androidx.core:core:1.13.1] /home/ben4shot/.gradle/caches/8.9/transforms/1a603768b10635045151cc8e109f44ef/transformed/core-1.13.1/AndroidManifest.xml:28:18-86
+32        android:debuggable="true"
+33        android:extractNativeLibs="false"
+34        android:hardwareAccelerated="true"
+34-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:20:9-43
+35        android:icon="@drawable/ic_launcher"
+35-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:14:9-45
+36        android:label="@string/app_name"
+36-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:15:9-41
+37        android:requestLegacyExternalStorage="true"
+37-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:19:9-52
+38        android:roundIcon="@drawable/ic_launcher"
+38-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:16:9-50
+39        android:supportsRtl="true"
+39-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:17:9-35
+40        android:theme="@style/Theme.GbaLinkP2P" >
+40-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:18:9-48
+41        <activity
+41-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:23:9-32:20
+42            android:name="com.multiplayer.gbalink.RomMenuActivity"
+42-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:24:13-44
+43            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+43-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:26:13-87
+44            android:exported="true"
+44-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:25:13-36
+45            android:screenOrientation="fullSensor" >
+45-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:27:13-51
+46            <intent-filter>
+46-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:28:13-31:29
+47                <action android:name="android.intent.action.MAIN" />
+47-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:29:17-69
+47-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:29:25-66
+48
+49                <category android:name="android.intent.category.LAUNCHER" />
+49-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:30:17-77
+49-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:30:27-74
+50            </intent-filter>
+51        </activity>
+52        <activity
+52-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:34:9-39:59
+53            android:name="com.multiplayer.gbalink.MainActivity"
+53-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:35:13-41
+54            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+54-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:37:13-87
+55            android:exported="true"
+55-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:36:13-36
+56            android:screenOrientation="fullSensor"
+56-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:38:13-51
+57            android:windowSoftInputMode="adjustNothing" />
+57-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:39:13-56
+58        <activity
+58-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:41:9-46:55
+59            android:name="com.multiplayer.gbalink.showdown.ShowdownActivity"
+59-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:42:13-54
+60            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+60-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:44:13-87
+61            android:exported="true"
+61-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:43:13-36
+62            android:screenOrientation="fullSensor"
+62-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:45:13-51
+63            android:windowSoftInputMode="adjustPan" />
+63-->/home/ben4shot/Develop/Multiplayer/app/src/main/AndroidManifest.xml:46:13-52
+64
+65        <provider
+65-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+66            android:name="androidx.startup.InitializationProvider"
+66-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
+67            android:authorities="com.multiplayer.gbalink.androidx-startup"
+67-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
+68            android:exported="false" >
+68-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
+69            <meta-data
+69-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+70                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+70-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
+71                android:value="androidx.startup" />
+71-->[androidx.emoji2:emoji2:1.3.0] /home/ben4shot/.gradle/caches/8.9/transforms/4559ac7eccfc192d0a53a43989a474bd/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
+72            <meta-data
+72-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/ben4shot/.gradle/caches/8.9/transforms/5e91b6557872c83723646428e0305cc1/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:29:13-31:52
+73                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+73-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/ben4shot/.gradle/caches/8.9/transforms/5e91b6557872c83723646428e0305cc1/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:30:17-78
+74                android:value="androidx.startup" />
+74-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/ben4shot/.gradle/caches/8.9/transforms/5e91b6557872c83723646428e0305cc1/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:31:17-49
+75            <meta-data
+75-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:29:13-31:52
+76                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+76-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:30:17-85
+77                android:value="androidx.startup" />
+77-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:31:17-49
+78        </provider>
+79
+80        <receiver
+80-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:34:9-52:20
+81            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+81-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:35:13-76
+82            android:directBootAware="false"
+82-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:36:13-44
+83            android:enabled="true"
+83-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:37:13-35
+84            android:exported="true"
+84-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:38:13-36
+85            android:permission="android.permission.DUMP" >
+85-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:39:13-57
+86            <intent-filter>
+86-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:40:13-42:29
+87                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+87-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:41:17-91
+87-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:41:25-88
+88            </intent-filter>
+89            <intent-filter>
+89-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:43:13-45:29
+90                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+90-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:44:17-85
+90-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:44:25-82
+91            </intent-filter>
+92            <intent-filter>
+92-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:46:13-48:29
+93                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+93-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:47:17-88
+93-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:47:25-85
+94            </intent-filter>
+95            <intent-filter>
+95-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:49:13-51:29
+96                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+96-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:50:17-95
+96-->[androidx.profileinstaller:profileinstaller:1.3.1] /home/ben4shot/.gradle/caches/8.9/transforms/70ddc98ebd840a90a4451bbb03c58297/transformed/profileinstaller-1.3.1/AndroidManifest.xml:50:25-92
+97            </intent-filter>
+98        </receiver>
+99    </application>
+100
+101</manifest>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:background="@drawable/bg_hp_box"
+    android:padding="10dp"
+    android:gravity="center_vertical"
+    android:layout_marginBottom="6dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/txtRoomTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TrainerA vs TrainerB"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/txtRoomId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="battle-gen9ou-123456"
+            android:textColor="#88FFFFFF"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnJoinSpectate"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:text="Observar"
+        android:textSize="11sp"
+        android:backgroundTint="@color/gba_indigo"
+        android:textColor="@color/white" />
+
+</LinearLayout>

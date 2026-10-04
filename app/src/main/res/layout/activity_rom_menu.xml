@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FF121212">
+
+    <!-- MyBoy Style Top Action Bar -->
+    <LinearLayout
+        android:id="@+id/myBoyTopBar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#FF1E1E1E"
+        android:paddingHorizontal="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MyBoy! P2P"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/txtCurrentPath"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="/storage/emulated/0/Download"
+            android:textColor="#88FFFFFF"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:ellipsize="start"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnSelectFolder"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Carpeta"
+            android:textSize="11sp"
+            android:backgroundTint="#FF333333"
+            android:textColor="@color/white"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/btnMenuShowdown"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Showdown"
+            android:textSize="11sp"
+            android:backgroundTint="#FF6A1B9A"
+            android:textColor="@color/white" />
+    </LinearLayout>
+
+    <!-- ROM & Folder List -->
+    <ListView
+        android:id="@+id/listExplorer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:divider="#22FFFFFF"
+        android:dividerHeight="1dp"
+        android:listSelector="#33FFFFFF" />
+
+</LinearLayout>

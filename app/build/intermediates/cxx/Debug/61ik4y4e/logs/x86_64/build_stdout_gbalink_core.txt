@@ -1,0 +1,2 @@
+ninja: Entering directory `/home/ben4shot/Develop/Multiplayer/app/.cxx/Debug/61ik4y4e/x86_64'
+ninja: no work to do.

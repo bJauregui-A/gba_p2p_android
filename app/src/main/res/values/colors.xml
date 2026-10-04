@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="gba_bg">#FF0F111A</color>
+    <color name="gba_bezel">#FF1E2130</color>
+    <color name="gba_indigo">#FF4834D4</color>
+    <color name="gba_accent">#FF686DE0</color>
+    <color name="gba_dpad">#FF2C3042</color>
+    <color name="gba_button_a">#FFEB4D4B</color>
+    <color name="gba_button_b">#FFF0932B</color>
+    <color name="gba_shoulder">#FF30336B</color>
+    <color name="gba_online_green">#FF2ECC71</color>
+    <color name="gba_warning_yellow">#FFF1C40F</color>
+</resources>
