@@ -269,6 +269,27 @@ class P2PConnectionManager(
         }
     }
 
+    private fun isLocal(addr: InetSocketAddress): Boolean {
+        val a = addr.address ?: return false
+        return a.isSiteLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress
+    }
+
+    /** Connected over the public address: try the peer's LAN address too (see receive loop). */
+    private fun probeLocalRoute() {
+        val current = peerAddress ?: return
+        if (isLocal(current)) return
+        val locals = punchTargets.filter { isLocal(it) && it != current }
+        if (locals.isEmpty()) return
+        scope.launch {
+            val hello = LinkCableProtocol.buildHandshakePacket(if (isMaster) GbaNative.ROLE_MASTER else GbaNative.ROLE_SLAVE, 0)
+            repeat(10) {
+                if (peerAddress?.let { isLocal(it) } == true) return@launch
+                locals.forEach { sendTo(hello, it) }
+                delay(150)
+            }
+        }
+    }
+
     private fun sendTo(data: ByteArray, target: InetSocketAddress) {
         try {
             socket?.send(DatagramPacket(data, data.size, target))
@@ -288,12 +309,20 @@ class P2PConnectionManager(
                     socket?.receive(packet)
                     val senderAddress = packet.socketAddress as InetSocketAddress
 
+                    val isHandshake = packet.length > 0 && packet.data[0] == LinkCableProtocol.MSG_HANDSHAKE
                     // Lock onto whichever address (public or LAN) the peer's handshake arrives from
-                    if (packet.length > 0 && packet.data[0] == LinkCableProtocol.MSG_HANDSHAKE &&
-                        connectionState != STATE_CONNECTED
-                    ) {
+                    if (isHandshake && connectionState != STATE_CONNECTED) {
                         peerAddress = senderAddress
                         Log.i(TAG, "Peer locked to: $peerAddress")
+                    } else if (isHandshake && senderAddress != peerAddress &&
+                        isLocal(senderAddress) && peerAddress?.let { !isLocal(it) } != false
+                    ) {
+                        // Same phone / same Wi-Fi: move off the public route (router hairpin,
+                        // carrier NAT) to the direct local one, and tell the peer to do the same
+                        peerAddress = senderAddress
+                        Log.i(TAG, "Switched to local route: $peerAddress")
+                        sendPacket(LinkCableProtocol.buildHandshakePacket(if (isMaster) GbaNative.ROLE_MASTER else GbaNative.ROLE_SLAVE, 0))
+                        continue
                     } else if (senderAddress != peerAddress) {
                         continue // ignore stray packets (STUN replies, other hosts)
                     }
@@ -326,9 +355,11 @@ class P2PConnectionManager(
             LinkCableProtocol.MSG_HANDSHAKE -> {
                 Log.i(TAG, "P2P Handshake received!")
                 if (connectionState != STATE_CONNECTED) {
-                    updateState(STATE_CONNECTED, if (isMaster) "Conectado (Master - J1)" else "Conectado (Slave - J2)")
+                    val route = if (peerAddress?.let { isLocal(it) } == true) "red local" else "internet"
+                    updateState(STATE_CONNECTED, (if (isMaster) "Conectado (Master - J1)" else "Conectado (Slave - J2)") + " · $route")
                     // Respond with handshake
                     sendPacket(LinkCableProtocol.buildHandshakePacket(if (isMaster) GbaNative.ROLE_MASTER else GbaNative.ROLE_SLAVE, 0))
+                    probeLocalRoute()
                 }
             }
 

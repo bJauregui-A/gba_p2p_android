@@ -90,11 +90,16 @@ class GbaEmulator(private val nativeCore: GbaNative) {
                 // Run 1 Emulated Frame
                 val samples = nativeCore.nativeRunFrame(screenBitmap, audioBuffer, currentKeyMask)
 
+                // While a Game Link session is active the frame pacing must follow the peer
+                // (see pace()), so audio must never block the thread.
+                val linked = nativeCore.nativeLinkIdle(0) >= 0
+
                 // At 1x the AudioTrack paces emulation (blocking write = audio clock, no crackles).
                 // When fast-forwarding, audio is dropped and the sleep below throttles instead.
-                val audioSync = speedMultiplier <= 1.0f && audioTrack != null
-                if (samples > 0 && audioSync) {
-                    audioTrack?.write(audioBuffer, 0, samples, AudioTrack.WRITE_BLOCKING)
+                val audioSync = speedMultiplier <= 1.0f && audioTrack != null && !linked
+                if (samples > 0 && audioTrack != null && speedMultiplier <= 1.0f) {
+                    audioTrack?.write(audioBuffer, 0, samples,
+                        if (audioSync) AudioTrack.WRITE_BLOCKING else AudioTrack.WRITE_NON_BLOCKING)
                 }
 
                 // Notify UI to render bitmap
@@ -107,14 +112,19 @@ class GbaEmulator(private val nativeCore: GbaNative) {
                     fpsTimer = System.currentTimeMillis()
                 }
 
-                if (!(audioSync && samples > 0)) {
-                    val elapsed = System.nanoTime() - now
-                    val targetFrameTime = (BASE_FRAME_TIME_NS / speedMultiplier.coerceAtLeast(0.25f)).toLong()
-                    val sleepNs = targetFrameTime - elapsed
-                    if (sleepNs > 0) {
-                        try {
-                            Thread.sleep(sleepNs / 1_000_000L, (sleepNs % 1_000_000L).toInt())
-                        } catch (ignored: InterruptedException) {
+                val targetFrameTime = (BASE_FRAME_TIME_NS / speedMultiplier.coerceAtLeast(0.25f)).toLong()
+                if (linked) {
+                    pace(targetFrameTime)
+                } else {
+                    linkDeadline = 0L
+                    if (!(audioSync && samples > 0)) {
+                        val elapsed = System.nanoTime() - now
+                        val sleepNs = targetFrameTime - elapsed
+                        if (sleepNs > 0) {
+                            try {
+                                Thread.sleep(sleepNs / 1_000_000L, (sleepNs % 1_000_000L).toInt())
+                            } catch (ignored: InterruptedException) {
+                            }
                         }
                     }
                 }
@@ -123,6 +133,34 @@ class GbaEmulator(private val nativeCore: GbaNative) {
         }, "GbaEmulatorThread").apply {
             priority = Thread.MAX_PRIORITY
             start()
+        }
+    }
+
+    private var linkDeadline = 0L
+
+    /**
+     * Frame pacing during a Game Link session: wait for the next frame slot on an absolute
+     * schedule, but wake up at once when the peer is waiting for us, so a transfer never costs
+     * a whole frame of sleep on the other console.
+     */
+    private fun pace(frameNs: Long) {
+        val now = System.nanoTime()
+        linkDeadline = if (linkDeadline == 0L || now - linkDeadline > frameNs * 3) now + frameNs
+        else linkDeadline + frameNs
+        while (isRunning.get()) {
+            val remainingNs = linkDeadline - System.nanoTime()
+            val remainingMs = (remainingNs / 1_000_000L).toInt()
+            if (remainingMs <= 0) break
+            when (nativeCore.nativeLinkIdle(remainingMs)) {
+                1 -> return // the peer is waiting for us: run the next frame now
+                -1 -> {     // link session ended meanwhile: plain sleep until the slot
+                    try {
+                        Thread.sleep(remainingNs / 1_000_000L, (remainingNs % 1_000_000L).toInt())
+                    } catch (ignored: InterruptedException) {
+                    }
+                    return
+                }
+            }
         }
     }
 

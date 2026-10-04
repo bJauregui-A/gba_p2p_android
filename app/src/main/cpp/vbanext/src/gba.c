@@ -12527,6 +12527,7 @@ static volatile int link_connected = 0;
 static int link_applied_connected = -1;
 static volatile int link_peer_lost = 0;
 static volatile int link_reset_clock = 0;
+static volatile int link_rebase = 0;      /* child: realign its clock after the parent came back */
 static uint32_t link_seq = 0;
 static int link_srtt_us = 20000;   /* smoothed transfer round trip, sets the retransmit delay */
 /* emulated time */
@@ -12581,8 +12582,10 @@ void gba_link_set_connected(int connected)
 void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply, uint32_t cycles)
 {
 	pthread_mutex_lock(&link_mutex);
+	if (link_peer_lost)
+		link_rebase = 1;
 	link_peer_lost = 0;
-	if (!link_peer_seen || LINK_AFTER(cycles, link_peer_cycles))
+	if (!link_peer_seen || link_rebase || LINK_AFTER(cycles, link_peer_cycles))
 		link_peer_cycles = cycles;
 	link_peer_seen = 1;
 
@@ -12819,6 +12822,45 @@ static void link_try_apply_request(void)
 		link_complete(kind, reply, data, 0);
 }
 
+/*
+ * Frontend frame pacing while linked (called between frames, no core lock held).
+ * A console must not sleep while the peer is blocked waiting for it, otherwise every
+ * transfer costs the rest of a frame. Returns -1 when no link session is active (use
+ * normal pacing), 1 as soon as we must run (the parent's clock is ahead of the child, or
+ * the peer is waiting on a transfer), 0 when the timeout elapsed.
+ */
+int gba_link_idle_wait(int timeout_ms)
+{
+	struct timespec ts;
+	int need;
+	if (!link_connected || link_role == LINK_STANDALONE || link_peer_lost || !link_peer_seen)
+		return -1;
+	if (!link_is_multiplayer(READ16LE(&ioMem[0x128])) && LINK_AFTER(link_cycles, link_active_until))
+		return -1;
+	if (timeout_ms <= 0)
+	{
+		/* end of a frame: tell the peer how far we got, so it doesn't wait for the next SYNC */
+		gba_link_send(LINK_KIND_SYNC, 0, 0, 0, link_cycles);
+		return 0;
+	}
+
+	link_timespec_in(&ts, timeout_ms);
+	pthread_mutex_lock(&link_mutex);
+	for (;;)
+	{
+		/* Only the child follows the parent's clock; the parent keeps real-time pace
+		 * (the child may overshoot it by a CPU event, which must not wake the parent). */
+		need = link_req_pending ||
+		       (link_role == LINK_SLAVE && (int32_t)(link_peer_cycles - link_cycles) > 0);
+		if (need || !link_connected)
+			break;
+		if (pthread_cond_timedwait(&link_cond, &link_mutex, &ts) == ETIMEDOUT)
+			break;
+	}
+	pthread_mutex_unlock(&link_mutex);
+	return need ? 1 : 0;
+}
+
 /* Emulation thread, once per CPU event: sync clocks and serve the peer. */
 static void link_poll(void)
 {
@@ -12849,13 +12891,26 @@ static void link_poll(void)
 
 	link_try_apply_request();
 
-	/* While our serial port is in use, don't run ahead of the peer */
+	if (link_rebase)
+	{
+		link_rebase = 0;
+		if (link_role == LINK_SLAVE)
+			link_cycles = link_peer_cycles;
+	}
+
+	/*
+	 * While the serial port is in use, keep the clocks together. The child never runs ahead
+	 * of the parent: every transfer is then applied exactly at the parent's cycle and the
+	 * child's CPU always runs between two transfers (if it were ahead it would answer several
+	 * transfers in a row with stale data). The parent may lead by up to LINK_MAX_AHEAD.
+	 */
 	if (link_peer_seen && !link_peer_lost &&
 	    (link_is_multiplayer(READ16LE(&ioMem[0x128])) || !LINK_AFTER(link_cycles, link_active_until)))
 	{
+		int32_t limit = (link_role == LINK_SLAVE) ? 0 : LINK_MAX_AHEAD;
 		struct timespec start, now;
 		clock_gettime(CLOCK_MONOTONIC, &start);
-		while ((int32_t)(link_cycles - link_peer_cycles) > LINK_MAX_AHEAD && link_connected)
+		while ((int32_t)(link_cycles - link_peer_cycles) > limit && link_connected)
 		{
 			struct timespec ts;
 			clock_gettime(CLOCK_MONOTONIC, &now);

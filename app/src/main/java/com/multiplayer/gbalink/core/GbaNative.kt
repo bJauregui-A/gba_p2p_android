@@ -49,6 +49,9 @@ class GbaNative {
     external fun nativeSetKeypad(keyMask: Int)
     external fun nativeSetLinkRole(role: Int)
     external fun nativeSetLinkConnected(connected: Boolean)
+
+    /** Link-aware wait between frames: -1 no link session, 1 peer needs us now, 0 timeout. */
+    external fun nativeLinkIdle(timeoutMs: Int): Int
     external fun nativeLinkReceive(kind: Int, data: Int, seq: Int, isReply: Boolean, cycles: Int)
     external fun nativeGetSaveData(): ByteArray?
     external fun nativeLoadSaveData(sramBytes: ByteArray)

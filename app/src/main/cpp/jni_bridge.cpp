@@ -27,6 +27,7 @@ void retro_get_save_data(uint8_t** out_ptr, size_t* out_size);
 void gba_link_set_role(int role);
 void gba_link_set_connected(int connected);
 void gba_link_receive(int kind, uint32_t data, uint32_t seq, int is_reply, uint32_t cycles);
+int gba_link_idle_wait(int timeout_ms);
 
 // Called by the core (emulation thread) to send a link packet to the peer
 void gba_link_send(int kind, uint32_t data, uint32_t seq, int is_reply, uint32_t cycles) {
@@ -221,6 +222,11 @@ Java_com_multiplayer_gbalink_core_GbaNative_nativeSetLinkRole(JNIEnv* env, jobje
 JNIEXPORT void JNICALL
 Java_com_multiplayer_gbalink_core_GbaNative_nativeSetLinkConnected(JNIEnv* env, jobject thiz, jboolean connected) {
     gba_link_set_connected(connected ? 1 : 0);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_multiplayer_gbalink_core_GbaNative_nativeLinkIdle(JNIEnv* env, jobject thiz, jint timeoutMs) {
+    return gba_link_idle_wait(timeoutMs);
 }
 
 JNIEXPORT void JNICALL
